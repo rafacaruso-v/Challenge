@@ -1,15 +1,37 @@
 import streamlit as st
 
+# =====================================
+# IMPORTS
+# =====================================
+
 from Scanners.semgrep import rodar_semgrep
+
 from IAs.risk_score import calcular_criticidade
 
-from Inventario.asset_manager import (
-    adicionar_ativo,
-    listar_ativos
+from Database.db import (
+    criar_tabela,
+    salvar_ativo,
+    listar_ativos_db
 )
 
 # =====================================
-# CONFIGURAÇÃO
+# CONFIGURAÇÃO DA PÁGINA
+# =====================================
+
+st.set_page_config(
+    page_title="ASPM Platform",
+    page_icon="🔐",
+    layout="wide"
+)
+
+# =====================================
+# CRIA TABELA SQLITE
+# =====================================
+
+criar_tabela()
+
+# =====================================
+# CSS / VISUAL
 # =====================================
 
 st.markdown(
@@ -203,39 +225,53 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-st.set_page_config(
-    page_title="ASPM Platform",
-    page_icon="🔐",
-    layout="wide"
+# =====================================
+# TÍTULO
+# =====================================
+
+st.markdown(
+    """
+    <h1>
+        ASPM Platform
+    </h1>
+    """,
+    unsafe_allow_html=True
 )
 
-st.markdown("🔐 ASPM Platform")
+st.markdown(
+    """
+    <p style='text-align:center;
+    font-size:20px;
+    margin-bottom:40px;'>
 
-st.write(
-    "Application Security Posture Management"
+    Application Security Posture Management
+
+    </p>
+    """,
+    unsafe_allow_html=True
 )
 
 # =====================================
 # FORMULÁRIO
 # =====================================
 
-st.markdown("Cadastrar Ativo")
+st.markdown("## Cadastro de Ativos")
 
 nome = st.text_input(
     "Nome do ativo"
 )
 
 tipo = st.selectbox(
-    "Tipo",
+    "Tipo do ativo",
     [
         "API",
-        "Aplicação Web",
+        "Aplicação",
         "Repositório"
     ]
 )
 
 url = st.text_input(
-    "URL / Caminho"
+    "URL / Caminho do ativo"
 )
 
 ambiente = st.selectbox(
@@ -251,13 +287,17 @@ ambiente = st.selectbox(
 # BOTÃO DE ANÁLISE
 # =====================================
 
-if st.button("Analisar Ativo"):
+if st.button("🔍 Analisar Ativo"):
 
-    with st.spinner("🔄 Analisando ativo..."):
+    with st.spinner(
+        "Analisando ativo..."
+    ):
 
         resultado_scanner = ""
 
-        # Executa scanner apenas em repositórios
+        # =====================================
+        # EXECUTA SEMGREP
+        # =====================================
 
         if tipo == "Repositório":
 
@@ -265,9 +305,9 @@ if st.button("Analisar Ativo"):
                 url
             )
 
-        # =================================
-        # IA CALCULA A CRITICIDADE
-        # =================================
+        # =====================================
+        # IA CALCULA RISCO
+        # =====================================
 
         criticidade, score = calcular_criticidade(
             tipo,
@@ -275,37 +315,46 @@ if st.button("Analisar Ativo"):
             resultado_scanner
         )
 
-        ativo = {
+        # =====================================
+        # SALVA NO BANCO
+        # =====================================
 
-            "nome": nome,
-            "tipo": tipo,
-            "url": url,
-            "ambiente": ambiente,
-            "criticidade": criticidade,
-            "score": score
-        }
+        salvar_ativo(
+            nome,
+            tipo,
+            url,
+            ambiente,
+            criticidade,
+            score
+        )
 
-        adicionar_ativo(ativo)
-
-    st.success("✅ Análise concluída!")
+    st.success(
+        "✅ Análise concluída!"
+    )
 
     # =====================================
     # RESULTADO
     # =====================================
 
-    st.subheader("Resultado")
+    st.markdown("## Resultado da Análise")
 
-    st.write(f"Ativo: {nome}")
+    col1, col2 = st.columns(2)
 
-    st.metric(
-        "Criticidade",
-        criticidade
-    )
+    with col1:
 
-    st.metric(
-        "Risk Score",
-        score
-    )
+        st.metric(
+            "Criticidade",
+            criticidade
+        )
+
+    with col2:
+
+        st.metric(
+            "Risk Score",
+            score
+        )
+
+    st.write(f"Ativo analisado: {nome}")
 
     # =====================================
     # RESULTADO DO SCANNER
@@ -313,55 +362,72 @@ if st.button("Analisar Ativo"):
 
     if resultado_scanner:
 
-        st.subheader(
-            "Resultado do Scanner"
+        st.markdown(
+            "### Resultado do Scanner"
         )
 
         st.code(resultado_scanner)
 
 # =====================================
-# DASHBOARD / INVENTÁRIO
+# INVENTÁRIO
 # =====================================
 
-st.markdown("📊 Inventário")
+st.markdown("## 📊 Inventário de Ativos")
 
-ativos = listar_ativos()
+ativos = listar_ativos_db()
 
 if ativos:
 
     for ativo in ativos:
 
         with st.expander(
-            f"🔎 {ativo['nome']}"
+            f"🔎 {ativo[1]}"
         ):
 
             st.write(
-                f"Tipo: {ativo['tipo']}"
+                f"Tipo: {ativo[2]}"
             )
 
             st.write(
-                f"Ambiente: {ativo['ambiente']}"
+                f"URL: {ativo[3]}"
             )
 
             st.write(
-                f"Criticidade: {ativo['criticidade']}"
+                f"Ambiente: {ativo[4]}"
             )
 
             st.write(
-                f"Risk Score: {ativo['score']}"
+                f"Criticidade: {ativo[5]}"
             )
 
-            if ativo["criticidade"] == "Crítica":
-                st.error("⚠️ Risco Crítico")
+            st.write(
+                f"Risk Score: {ativo[6]}"
+            )
 
-            elif ativo["criticidade"] == "Alta":
-                st.warning("⚠️ Alto Risco")
+            # =====================================
+            # ALERTAS
+            # =====================================
+
+            if ativo[5] == "Crítica":
+
+                st.error(
+                    "⚠️ Risco Crítico"
+                )
+
+            elif ativo[5] == "Alta":
+
+                st.warning(
+                    "⚠️ Alto Risco"
+                )
 
             else:
-                st.success("✔ Risco Controlado")
+
+                st.success(
+                    "✔ Risco Controlado"
+                )
 
 else:
 
     st.info(
-        "Nenhum ativo analisado."
+        "Nenhum ativo cadastrado."
     )
