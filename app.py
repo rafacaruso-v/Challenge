@@ -15,7 +15,7 @@ from Database.db import (
 )
 
 # =====================================
-# CONFIGURAÇÃO DA PÁGINA
+# CONFIGURAÇÃO
 # =====================================
 
 st.set_page_config(
@@ -25,7 +25,7 @@ st.set_page_config(
 )
 
 # =====================================
-# CRIA TABELA SQLITE
+# BANCO
 # =====================================
 
 criar_tabela()
@@ -54,6 +54,12 @@ st.markdown(
         );
 
         color: white;
+    }
+
+    /* REMOVE ÍCONE CLIP */
+
+    button[title="Copy link to this element"] {
+        display: none !important;
     }
 
     /* =========================================
@@ -101,15 +107,6 @@ st.markdown(
 
         text-shadow:
         0px 0px 25px rgba(168,85,247,0.35);
-    }
-
-    /* =========================================
-       SUBTÍTULOS
-    ========================================= */
-
-    h2, h3 {
-
-        color: #f5f3ff;
     }
 
     /* =========================================
@@ -240,7 +237,8 @@ st.markdown(
 
 st.markdown(
     """
-    <p style='text-align:center;
+    <p style='
+    text-align:center;
     font-size:20px;
     margin-bottom:40px;'>
 
@@ -252,10 +250,25 @@ st.markdown(
 )
 
 # =====================================
-# FORMULÁRIO
+# CADASTRO
 # =====================================
 
-st.markdown("## Cadastro de Ativos")
+st.markdown(
+    """
+    <div style='
+        font-size:32px;
+        font-weight:700;
+        margin-top:20px;
+        margin-bottom:20px;
+        color:#f5f3ff;
+    '>
+
+    Cadastro de Ativos
+
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 
 nome = st.text_input(
     "Nome do ativo"
@@ -284,7 +297,7 @@ ambiente = st.selectbox(
 )
 
 # =====================================
-# BOTÃO DE ANÁLISE
+# BOTÃO
 # =====================================
 
 if st.button("🔍 Analisar Ativo"):
@@ -295,28 +308,17 @@ if st.button("🔍 Analisar Ativo"):
 
         resultado_scanner = ""
 
-        # =====================================
-        # EXECUTA SEMGREP
-        # =====================================
-
         if tipo == "Repositório":
+
             resultado_scanner = rodar_semgrep(
                 url
             )
-
-        # =====================================
-        # IA CALCULA RISCO
-        # =====================================
 
         criticidade, score = calcular_criticidade(
             tipo,
             ambiente,
             resultado_scanner
         )
-
-        # =====================================
-        # SALVA NO BANCO
-        # =====================================
 
         salvar_ativo(
             nome,
@@ -335,17 +337,34 @@ if st.button("🔍 Analisar Ativo"):
     # RESULTADO
     # =====================================
 
-    st.markdown("## Resultado da Análise")
+    st.markdown(
+        """
+        <div style='
+            font-size:32px;
+            font-weight:700;
+            margin-top:20px;
+            margin-bottom:20px;
+            color:#f5f3ff;
+        '>
+
+        Resultado da Análise
+
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
     col1, col2 = st.columns(2)
 
     with col1:
+
         st.metric(
             "Criticidade",
             criticidade
         )
 
     with col2:
+
         st.metric(
             "Risk Score",
             score
@@ -354,12 +373,26 @@ if st.button("🔍 Analisar Ativo"):
     st.write(f"Ativo analisado: {nome}")
 
     # =====================================
-    # RESULTADO DO SCANNER
+    # RESULTADO SCANNER
     # =====================================
 
     if resultado_scanner:
+
         st.markdown(
-            "### Resultado do Scanner"
+            """
+            <div style='
+                font-size:26px;
+                font-weight:700;
+                margin-top:20px;
+                margin-bottom:20px;
+                color:#f5f3ff;
+            '>
+
+            Resultado do Scanner
+
+            </div>
+            """,
+            unsafe_allow_html=True
         )
 
         st.code(resultado_scanner)
@@ -368,7 +401,22 @@ if st.button("🔍 Analisar Ativo"):
 # INVENTÁRIO
 # =====================================
 
-st.markdown("## 📊 Inventário de Ativos")
+st.markdown(
+    """
+    <div style='
+        font-size:32px;
+        font-weight:700;
+        margin-top:30px;
+        margin-bottom:20px;
+        color:#f5f3ff;
+    '>
+
+    📊 Inventário de Ativos
+
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 
 ativos = listar_ativos_db()
 
@@ -400,10 +448,6 @@ if ativos:
                 f"Risk Score: {ativo[6]}"
             )
 
-            # =====================================
-            # ALERTAS
-            # =====================================
-
             if ativo[5] == "Crítica":
 
                 st.error(
@@ -427,3 +471,4 @@ else:
     st.info(
         "Nenhum ativo cadastrado."
     )
+
