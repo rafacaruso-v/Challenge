@@ -300,7 +300,6 @@ if st.button("🔍 Analisar Ativo"):
         # =====================================
 
         if tipo == "Repositório":
-
             resultado_scanner = rodar_semgrep(
                 url
             )
@@ -341,14 +340,12 @@ if st.button("🔍 Analisar Ativo"):
     col1, col2 = st.columns(2)
 
     with col1:
-
         st.metric(
             "Criticidade",
             criticidade
         )
 
     with col2:
-
         st.metric(
             "Risk Score",
             score
@@ -361,7 +358,6 @@ if st.button("🔍 Analisar Ativo"):
     # =====================================
 
     if resultado_scanner:
-
         st.markdown(
             "### Resultado do Scanner"
         )
