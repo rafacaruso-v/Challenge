@@ -47,6 +47,22 @@ def criar_tabela():
     conexao.commit()
 
 # =========================================
+# 🧹 LIMPAR BANCO (RESET)
+# =========================================
+
+def limpar_ativos():
+
+    conexao = conectar()
+
+    cursor = conexao.cursor()
+
+    cursor.execute(
+        "DELETE FROM ativos"
+    )
+
+    conexao.commit()
+
+# =========================================
 # SALVAR ATIVO
 # =========================================
 
