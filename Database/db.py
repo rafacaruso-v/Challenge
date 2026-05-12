@@ -1,20 +1,4 @@
 import sqlite3
-import os
-
-# =========================================
-# ARQUIVO DO BANCO
-# =========================================
-
-DB_PATH = "aspm.db"
-
-# =========================================
-# RESET TOTAL DO BANCO (FORÇADO)
-# =========================================
-
-def reset_banco():
-
-    if os.path.exists(DB_PATH):
-        os.remove(DB_PATH)
 
 # =========================================
 # CONEXÃO COM BANCO
@@ -23,7 +7,7 @@ def reset_banco():
 def conectar():
 
     conexao = sqlite3.connect(
-        DB_PATH,
+        "aspm.db",
         check_same_thread=False
     )
 
@@ -36,6 +20,7 @@ def conectar():
 def criar_tabela():
 
     conexao = conectar()
+
     cursor = conexao.cursor()
 
     cursor.execute(
@@ -43,11 +28,17 @@ def criar_tabela():
         CREATE TABLE IF NOT EXISTS ativos (
 
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+
             nome TEXT,
+
             tipo TEXT,
+
             url TEXT,
+
             ambiente TEXT,
+
             criticidade TEXT,
+
             score INTEGER
         )
         """
@@ -60,6 +51,7 @@ def criar_tabela():
 # =========================================
 
 def salvar_ativo(
+
     nome,
     tipo,
     url,
@@ -69,16 +61,33 @@ def salvar_ativo(
 ):
 
     conexao = conectar()
+
     cursor = conexao.cursor()
 
     cursor.execute(
         """
         INSERT INTO ativos (
-            nome, tipo, url, ambiente, criticidade, score
+
+            nome,
+            tipo,
+            url,
+            ambiente,
+            criticidade,
+            score
+
         )
+
         VALUES (?, ?, ?, ?, ?, ?)
         """,
-        (nome, tipo, url, ambiente, criticidade, score)
+
+        (
+            nome,
+            tipo,
+            url,
+            ambiente,
+            criticidade,
+            score
+        )
     )
 
     conexao.commit()
@@ -90,8 +99,13 @@ def salvar_ativo(
 def listar_ativos_db():
 
     conexao = conectar()
+
     cursor = conexao.cursor()
 
-    cursor.execute("SELECT * FROM ativos")
+    cursor.execute(
+        "SELECT * FROM ativos"
+    )
 
-    return cursor.fetchall()
+    ativos = cursor.fetchall()
+
+    return ativos
