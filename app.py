@@ -80,7 +80,7 @@ st.markdown(
        TÍTULO PRINCIPAL
     ========================================= */
 
-    h1 {
+    h1, #titulo {
 
         font-size: 70px;
 
@@ -228,9 +228,9 @@ st.markdown(
 
 st.markdown(
     """
-    <h1>
-        ASPM Platform
-    </h1>
+    <div>
+        <p id='titulo'>ASPM Platform</p>
+    </div>
     """,
     unsafe_allow_html=True
 )
@@ -471,4 +471,3 @@ else:
     st.info(
         "Nenhum ativo cadastrado."
     )
-
