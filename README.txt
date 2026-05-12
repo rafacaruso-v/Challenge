@@ -5,7 +5,7 @@ Abra o CMD do Windows e digite os comandos abaixo, quando terminar um, prossiga 
 pip install streamlit
 pip install semgrep
 
-(Esse texto vai ser atualizado frequentemente conforme o repositório aumente para dizer o que deve ser baixado.)
+(Esse texto vai ser atualizado frequentemente conforme o trabalho aumenta para dizer o que deve ser baixado.)
 
 -----------------------------------------------------------------------------------------------------
 
