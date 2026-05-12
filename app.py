@@ -56,11 +56,6 @@ st.markdown(
         color: white;
     }
 
-    /* REMOVE ÍCONE CLIP */
-
-    button[title="Copy link to this element"] {
-        display: none !important;
-    }
 
     /* =========================================
        SIDEBAR
