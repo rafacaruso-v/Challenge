@@ -11,7 +11,7 @@ pip install semgrep
 
 Depois que tiver tudo instalado, é só baixar o repositório e abrir no VS Code.
 
-Para abrir no VS Code, clique no código app.py e abra um terminal. 
+Para iniciar no VS Code, clique no código app.py e abra um terminal. 
 Depois é so colar o código abaixo e uma página Web deve abrir:
 
 python -m streamlit run app.py
