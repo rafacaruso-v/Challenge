@@ -5,7 +5,7 @@ def rodar_zap(url):
     try:
         zap = ZAPv2(
             apikey='2sr513moeq15252q90jocg8s8l',
-            proxies={'http': 'http://127.0.0.1:8080', 'https': 'http://127.0.0.1:8080'}
+            proxies={'http': 'http://127.0.0.1:8090', 'https': 'http://127.0.0.1:8090'}
         )
 
         print(f"ZAP conectado: {zap.core.version}")
