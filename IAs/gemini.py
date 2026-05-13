@@ -1,61 +1,88 @@
 import google.generativeai as genai
 from pydantic import BaseModel, Field
 import json
+from google.api_core import exceptions
 
 # =====================================
-# CONFIG API
+# CONFIGURAÇÃO DE ROTAÇÃO DE CHAVES
 # =====================================
-genai.configure(
-    api_key="AIzaSyCnvG-RvQGHa77qbVGEioe19ith0Z6TuJE"
-)
+# Adicione aqui suas chaves de contas diferentes
+CHAVES_API = [
+    "AIzaSyCnvG-RvQGHa77qbVGEioe19ith0Z6TuJE", 
+    "AIzaSyDhRFCWG4mFzovOXsKzNRrk4ZiRWjaujMQ",
+    "SUA_TERCEIRA_CHAVE_AQUI"
+]
 
-# Schema com descrições em português para orientar melhor a IA
 class AnaliseVulnerabilidadeSchema(BaseModel):
     criticidade: str = Field(description="Deve ser: Baixa, Média, Alta ou Crítica")
     score: int = Field(description="Pontuação de risco de 0 a 100")
     explicacao: str = Field(description="Análise detalhada dos achados em português. Seja cético com falsos positivos.")
     recomendacoes: str = Field(description="Passos práticos para correção em português")
 
-modelo = genai.GenerativeModel("gemini-2.5-flash") 
-
 def analisar_vulnerabilidades(tipo, ambiente, resultado_sast, resultado_dast):
     
     prompt = f"""
-    Você é um Auditor Sênior de Segurança de Aplicações (AppSec).
-    Analise os dados de scan abaixo para um ativo no ambiente de {ambiente}.
+    Você é um Auditor Sênior de Segurança de Aplicações (AppSec). Sua missão é realizar uma triagem técnica dos resultados de scan (SAST e DAST) para o ativos que podem ser classificados como {tipo} (Aplicação/API/Repositório) e operando em ambiente de {ambiente}.
 
-    DIRETRIZES RÍGIDAS PARA EVITAR FALSOS POSITIVOS:
-    1. Diferencie 'Ausência de Cabeçalhos de Segurança' de 'Vulnerabilidades Exploráveis'.
-       - Se apenas cabeçalhos estiverem faltando em um site público/estático, classifique como BAIXA/MÉDIA.
-    2. Contextualize o Ambiente: Vulnerabilidades em 'Produção' têm peso maior que em 'Desenvolvimento'.
-    3. Resultados Vazios: Se o SAST ou DAST estiverem vazios ou "[]", NÃO invente riscos. Classifique como 'Baixa' ou 'Informativa'.
-    4. Validação DAST: Falsos positivos comuns incluem erros de configuração (CWE-16) em CDNs de larga escala. Seja crítico.
-    5. Toda a sua resposta DEVE ser em Português do Brasil.
+    PRIORIDADES DE ANÁLISE (Ponderação Dinâmica):
+    Se o ativo for uma API:
+    Ignore vulnerabilidades de UI (como XSS em páginas estáticas ou falta de cookies de sessão).
+    Priorize: Broken Object Level Authorization (BOLA), exposição de dados no JSON, métodos HTTP inseguros e falhas de autenticação (JWT/API Keys).
+
+    Se o ativo for uma APLICAÇÃO WEB:
+    Priorize: Cross-Site Scripting (XSS), CSRF, Segurança de Cookies e cabeçalhos de proteção do navegador (CSP, HSTS).
+
+    Contexto de Ambiente ({ambiente}):
+    PRODUÇÃO: Rigor máximo. Falhas de infraestrutura, cabeçalhos ausentes e chaves expostas devem elevar o Risk Score imediatamente.
+    DESENVOLVIMENTO: Foco em Remediação Educativa. Priorize erros de lógica no SAST e ajude o desenvolvedor a entender a correção antes do deploy.
+
+    DIRETRIZES RÍGIDAS DE AUDITORIA:
+    Diferenciação de Riscos: Não confunda "Melhores Práticas" (ex: falta de X-Frame-Options) com "Vulnerabilidades Críticas" (ex: SQL Injection). Cabeçalhos ausentes em sites sem autenticação não devem ultrapassar o nível BAIXO.
+
+    Protocolo de Dados Vazios: Se os campos SAST ou DAST estiverem vazios ou [], ESTÁ PROIBIDO declarar o ativo como "Seguro". Você deve reportar explicitamente: "Falha na coleta de dados: os scanners não retornaram telemetria válida para análise."
+
+    Falsos Positivos de CDN: Erros de configuração de cache ou headers em CDNs (Cloudflare, Akamai) devem ser validados com ceticismo.
+
+    FORMATO DA RESPOSTA:
+    Resumo Executivo: (Máximo 3 linhas).
+    Quadro de Criticidade: (Baixa, Média, Alta, Crítica) + Risk Score (0-100).
+    Principais Achados: Liste apenas o que for explorável no contexto de {tipo}.
+    Plano de Remediação: Ações práticas separadas por prioridade.
+
+    Toda a sua resposta DEVE ser em Português do Brasil.
 
     DADOS DO ATIVO:
     - Tipo de Ativo: {tipo}
     - Ambiente: {ambiente}
-    - Resultados SAST (Código): {resultado_sast if resultado_sast else "Nenhum achado encontrado"}
-    - Resultados DAST (Dinâmico): {resultado_dast if resultado_dast else "Nenhum achado encontrado"}
+    - Resultados SAST (Código): {resultado_sast if resultado_sast else "[]"}
+    - Resultados DAST (Dinâmico): {resultado_dast if resultado_dast else "[]"}
     """
 
-    try:
-        resposta = modelo.generate_content(
-            prompt,
-            generation_config=genai.GenerationConfig(
-                response_mime_type="application/json",
-                response_schema=AnaliseVulnerabilidadeSchema,
-                temperature=0.1
+    # Variável para armazenar o último erro caso todas as chaves falhem
+    ultimo_erro = "Nenhuma chave de API configurada."
+
+    # Tenta cada chave na lista
+    for chave in CHAVES_API:
+        try:
+            genai.configure(api_key=chave)
+            
+            # Nota: Recomendo usar "gemini-1.5-flash" se o 2.5 ainda estiver com cotas baixas
+            modelo = genai.GenerativeModel("gemini-2.5-flash") 
+
+            resposta = modelo.generate_content(
+                prompt,
+                generation_config=genai.GenerationConfig(
+                    response_mime_type="application/json",
+                    response_schema=AnaliseVulnerabilidadeSchema,
+                    temperature=0.1
+                )
             )
-        )
 
-        dados_json = json.loads(resposta.text)
+            dados_json = json.loads(resposta.text)
+            criticidade = dados_json.get("criticidade", "Baixa")
+            score = dados_json.get("score", 0)
 
-        # Mapeia para garantir que o retorno interno também siga o padrão
-        criticidade = dados_json.get("criticidade", "Baixa")
-        score = dados_json.get("score", 0)
-
-        texto_formatado = f"""
+            texto_formatado = f"""
 ### Criticidade: {criticidade} | Score: {score}
 
 **Explicação Técnica:**
@@ -63,9 +90,16 @@ def analisar_vulnerabilidades(tipo, ambiente, resultado_sast, resultado_dast):
 
 **Plano de Remediação:**
 {dados_json.get('recomendacoes')}
-        """
+            """
+            return criticidade, score, texto_formatado
 
-        return criticidade, score, texto_formatado
+        except exceptions.ResourceExhausted:
+            ultimo_erro = "Limite de cota excedido em todas as chaves configuradas."
+            continue # Tenta a próxima chave
+        
+        except Exception as e:
+            ultimo_erro = e
+            continue # Tenta a próxima chave se houver outro erro técnico
 
-    except Exception as erro:
-        return "Erro", 0, f"Erro na análise da IA: {erro}"
+    # Se o loop terminar sem retornar um resultado, aciona a sua mensagem de erro original
+    return "Erro", 0, f"Erro na análise da IA: {ultimo_erro}"
