@@ -10,7 +10,7 @@ from google.api_core import exceptions
 CHAVES_API = [
     "AIzaSyCnvG-RvQGHa77qbVGEioe19ith0Z6TuJE", 
     "AIzaSyDhRFCWG4mFzovOXsKzNRrk4ZiRWjaujMQ",
-    "SUA_TERCEIRA_CHAVE_AQUI"
+    "AIzaSyCnvG-RvQGHa77qbVGEioe19ith0Z6TuJE"
 ]
 
 class AnaliseVulnerabilidadeSchema(BaseModel):
