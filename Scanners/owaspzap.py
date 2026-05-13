@@ -26,7 +26,7 @@ def rodar_zap(url):
             
         print("Spider concluído. Coletando alertas...")
         
-        alertas = zap.core.alerts(baseurl=url, count=20) 
+        alertas = zap.core.alerts(count=50)
         
         return alertas
 
