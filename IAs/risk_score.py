@@ -1,58 +1,90 @@
 def calcular_criticidade(
     tipo,
     ambiente,
-    resultado
+    resultado_sast,
+    resultado_dast
 ):
 
     score = 0
 
-    # ==================================
+    # =====================================
     # TIPO DO ATIVO
-    # ==================================
+    # =====================================
 
     if tipo == "API":
-        score += 3
+
+        score += 30
 
     elif tipo == "Aplicação":
-        score += 2
+
+        score += 25
 
     elif tipo == "Repositório":
-        score += 1
 
-    # ==================================
+        score += 15
+
+    # =====================================
     # AMBIENTE
-    # ==================================
+    # =====================================
 
     if ambiente == "Produção":
-        score += 4
+
+        score += 40
 
     elif ambiente == "Homologação":
-        score += 2
 
-    # ==================================
-    # VULNERABILIDADES
-    # ==================================
+        score += 20
 
-    if "SQL Injection" in resultado:
-        score += 5
+    elif ambiente == "Desenvolvimento":
 
-    if "hardcoded" in resultado:
-        score += 4
+        score += 10
 
-    if "Remote Code Execution" in resultado:
-        score += 5
+    # =====================================
+    # SAST
+    # =====================================
 
-    # ==================================
-    # CLASSIFICAÇÃO FINAL
-    # ==================================
+    if resultado_sast:
 
-    if score >= 9:
-        return "Crítica", score
+        score += 20
 
-    elif score >= 6:
-        return "Alta", score
+    # =====================================
+    # DAST
+    # =====================================
 
-    elif score >= 3:
-        return "Média", score
+    if (
+    resultado_dast
+    and resultado_dast != "ERRO_PROXY_ZAP"
+    and len(resultado_dast) > 0
+    ):
 
-    return "Baixa", score
+        score += 30
+
+    # =====================================
+    # LIMITE
+    # =====================================
+
+    if score > 100:
+
+        score = 100
+
+    # =====================================
+    # CRITICIDADE
+    # =====================================
+
+    if score >= 80:
+
+        criticidade = "Crítica"
+
+    elif score >= 60:
+
+        criticidade = "Alta"
+
+    elif score >= 40:
+
+        criticidade = "Média"
+
+    else:
+
+        criticidade = "Baixa"
+
+    return criticidade, score
