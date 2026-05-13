@@ -10,7 +10,7 @@ pip install zaproxy
 
 -----------------------------------------------------------------------------------------------------
 
-Depois que tiver tudo instalado, é só clonar o repositório e no VS Code.
+Depois que tiver tudo instalado, é só clonar o repositório no VS Code.
 
 Para iniciar no VS Code, clique no código app.py e abra um terminal. 
 Depois é so colar o código abaixo e uma página Web deve abrir:
