@@ -14,14 +14,22 @@ def rodar_zap(url):
         print(f"Iniciando Spider na URL: {url}")
         scan_id = zap.spider.scan(url)
         
+        timeout = time.time() + 60 * 5 
         
         while int(zap.spider.status(scan_id)) < 100:
+            if time.time() > timeout:
+                print("Spider atingiu o tempo limite!")
+                zap.spider.stop(scan_id)
+                break
             time.sleep(2)
+            print(f"Progresso do Spider: {zap.spider.status(scan_id)}%")
             
         print("Spider concluído. Coletando alertas...")
-        alertas = zap.core.alerts()
+        
+        alertas = zap.core.alerts(baseurl=url, count=20) 
+        
         return alertas
 
     except Exception as erro:
-        print(f"Erro ZAP: {erro}")
+        print(f"Erro detalhado no ZAP: {erro}")
         return "ERRO_PROXY_ZAP"
