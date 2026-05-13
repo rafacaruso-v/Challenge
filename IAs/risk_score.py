@@ -13,15 +13,15 @@ def calcular_criticidade(
 
     if tipo == "API":
 
-        score += 30
+        score += 10
 
     elif tipo == "Aplicação":
 
-        score += 25
+        score += 8
 
     elif tipo == "Repositório":
 
-        score += 15
+        score += 5
 
     # =====================================
     # AMBIENTE
@@ -29,15 +29,15 @@ def calcular_criticidade(
 
     if ambiente == "Produção":
 
-        score += 40
+        score += 20
 
     elif ambiente == "Homologação":
 
-        score += 20
+        score += 10
 
     elif ambiente == "Desenvolvimento":
 
-        score += 10
+        score += 5
 
     # =====================================
     # SAST
@@ -45,19 +45,48 @@ def calcular_criticidade(
 
     if resultado_sast:
 
-        score += 20
+        # Se vier lista
+        if isinstance(resultado_sast, list):
+
+            quantidade_sast = len(
+                resultado_sast
+            )
+
+        else:
+
+            quantidade_sast = 1
+
+        score += quantidade_sast * 10
 
     # =====================================
     # DAST
     # =====================================
 
-    if (
-    resultado_dast
-    and resultado_dast != "ERRO_PROXY_ZAP"
-    and len(resultado_dast) > 0
-    ):
+    if resultado_dast:
 
-        score += 30
+        # Evita contar erro do ZAP
+        if (
+            resultado_dast
+            != "ERRO_PROXY_ZAP"
+        ):
+
+            # Se vier lista
+            if isinstance(
+                resultado_dast,
+                list
+            ):
+
+                quantidade_dast = len(
+                    resultado_dast
+                )
+
+            else:
+
+                quantidade_dast = 1
+
+            score += (
+                quantidade_dast * 15
+            )
 
     # =====================================
     # LIMITE
