@@ -4,9 +4,10 @@ import streamlit as st
 # IMPORTS
 # =====================================
 
+from Scanners.owaspzap import rodar_zap
 from Scanners.semgrep import rodar_semgrep
 
-from IAs.risk_score import calcular_criticidade
+from IAs.gemini import analisar_vulnerabilidades
 
 from Database.db import (
     criar_tabela,
@@ -38,10 +39,6 @@ st.markdown(
     """
     <style>
 
-    /* =========================================
-       FUNDO PRINCIPAL
-    ========================================= */
-
     .stApp {
 
         background:
@@ -56,11 +53,6 @@ st.markdown(
         color: white;
     }
 
-
-    /* =========================================
-       SIDEBAR
-    ========================================= */
-
     section[data-testid="stSidebar"] {
 
         background-color: rgba(13,17,23,0.95);
@@ -71,11 +63,7 @@ st.markdown(
         backdrop-filter: blur(10px);
     }
 
-    /* =========================================
-       TÍTULO PRINCIPAL
-    ========================================= */
-
-    h1, #titulo {
+    #titulo {
 
         font-size: 70px;
 
@@ -104,18 +92,10 @@ st.markdown(
         0px 0px 25px rgba(168,85,247,0.35);
     }
 
-    /* =========================================
-       TEXTOS
-    ========================================= */
-
     p, label, div {
 
         color: #d8d4fe;
     }
-
-    /* =========================================
-       INPUTS
-    ========================================= */
 
     .stTextInput input,
     .stSelectbox div[data-baseweb="select"] {
@@ -128,10 +108,6 @@ st.markdown(
 
         color: white;
     }
-
-    /* =========================================
-       BOTÕES
-    ========================================= */
 
     .stButton button {
 
@@ -165,10 +141,6 @@ st.markdown(
         0px 0px 20px rgba(168,85,247,0.4);
     }
 
-    /* =========================================
-       MÉTRICAS / CARDS
-    ========================================= */
-
     div[data-testid="stMetric"] {
 
         background-color: rgba(22,27,34,0.65);
@@ -182,10 +154,6 @@ st.markdown(
         backdrop-filter: blur(12px);
     }
 
-    /* =========================================
-       EXPANDERS
-    ========================================= */
-
     .streamlit-expanderHeader {
 
         background-color: rgba(22,27,34,0.75);
@@ -195,10 +163,6 @@ st.markdown(
         border:
         1px solid rgba(168,85,247,0.12);
     }
-
-    /* =========================================
-       SCROLLBAR
-    ========================================= */
 
     ::-webkit-scrollbar {
 
@@ -297,32 +261,135 @@ ambiente = st.selectbox(
 
 if st.button("🔍 Analisar Ativo"):
 
-    with st.spinner(
-        "Analisando ativo..."
+    resultado_sast = ""
+    resultado_dast = ""
+
+    # =====================================
+    # VALIDAÇÃO URL
+    # =====================================
+
+    if not url.strip():
+
+        st.error(
+            "❌ URL inválida."
+        )
+
+        st.stop()
+
+    if (
+        tipo == "API"
+        or tipo == "Aplicação"
     ):
 
-        resultado_scanner = ""
+        if (
+            not url.startswith("http://")
+            and not url.startswith("https://")
+        ):
+
+            st.error(
+                "❌ URL inválida. Utilize http:// ou https://"
+            )
+
+            st.stop()
+
+    # =====================================
+    # EXECUTAR ANÁLISES
+    # =====================================
+
+    with st.spinner(
+        "Executando análise de segurança..."
+    ):
+
+        # =====================================
+        # SAST
+        # =====================================
 
         if tipo == "Repositório":
 
-            resultado_scanner = rodar_semgrep(
-                url
+            try:
+
+                resultado_sast = rodar_semgrep(
+                    url
+                )
+
+            except Exception as erro:
+
+                resultado_sast = (
+                    f"Erro no Semgrep: {erro}"
+                )
+
+        # =====================================
+        # DAST
+        # =====================================
+
+        if (
+            tipo == "API"
+            or tipo == "Aplicação"
+        ):
+
+            try:
+
+                resultado_dast = rodar_zap(
+                    url
+                )
+
+                # =====================================
+                # ERRO ZAP
+                # =====================================
+
+                if resultado_dast == "ERRO_PROXY_ZAP":
+
+                    st.error(
+                        "❌ Erro ao conectar no OWASP ZAP."
+                    )
+
+                    st.stop()
+
+            except Exception as erro:
+
+                st.error(
+                    f"Erro no ZAP: {erro}"
+                )
+
+                st.stop()
+
+        # =====================================
+        # IA GEMINI
+        # =====================================
+
+        try:
+
+            criticidade, score, analise_ia = analisar_vulnerabilidades(
+                tipo,
+                ambiente,
+                resultado_sast,
+                resultado_dast
             )
 
-        criticidade, score = calcular_criticidade(
-            tipo,
-            ambiente,
-            resultado_scanner
-        )
+        except Exception as erro:
 
-        salvar_ativo(
-            nome,
-            tipo,
-            url,
-            ambiente,
-            criticidade,
-            score
-        )
+            st.error(
+                f"Erro na IA Gemini: {erro}"
+            )
+
+            st.stop()
+
+    # =====================================
+    # SALVAR NO BANCO
+    # =====================================
+
+    salvar_ativo(
+        nome,
+        tipo,
+        url,
+        ambiente,
+        criticidade,
+        score
+    )
+
+    # =====================================
+    # SUCESSO
+    # =====================================
 
     st.success(
         "✅ Análise concluída!"
@@ -365,13 +432,40 @@ if st.button("🔍 Analisar Ativo"):
             score
         )
 
-    st.write(f"Ativo analisado: {nome}")
+    st.write(
+        f"Ativo analisado: {nome}"
+    )
 
     # =====================================
-    # RESULTADO SCANNER
+    # ANÁLISE IA
     # =====================================
 
-    if resultado_scanner:
+    st.markdown(
+        """
+        <div style='
+            font-size:26px;
+            font-weight:700;
+            margin-top:20px;
+            margin-bottom:20px;
+            color:#f5f3ff;
+        '>
+
+        Análise Inteligente da IA
+
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    st.write(
+        analise_ia
+    )
+
+    # =====================================
+    # RESULTADO SAST
+    # =====================================
+
+    if resultado_sast:
 
         st.markdown(
             """
@@ -383,14 +477,43 @@ if st.button("🔍 Analisar Ativo"):
                 color:#f5f3ff;
             '>
 
-            Resultado do Scanner
+            Resultado SAST (Semgrep)
 
             </div>
             """,
             unsafe_allow_html=True
         )
 
-        st.code(resultado_scanner)
+        st.code(
+            str(resultado_sast)
+        )
+
+    # =====================================
+    # RESULTADO DAST
+    # =====================================
+
+    if resultado_dast:
+
+        st.markdown(
+            """
+            <div style='
+                font-size:26px;
+                font-weight:700;
+                margin-top:20px;
+                margin-bottom:20px;
+                color:#f5f3ff;
+            '>
+
+            Resultado DAST (OWASP ZAP)
+
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+        st.code(
+            str(resultado_dast)
+        )
 
 # =====================================
 # INVENTÁRIO
@@ -414,6 +537,62 @@ st.markdown(
 )
 
 ativos = listar_ativos_db()
+
+# =====================================
+# KPIs
+# =====================================
+
+total_ativos = len(ativos)
+
+ativos_criticos = 0
+
+soma_scores = 0
+
+for ativo in ativos:
+
+    soma_scores += ativo[6]
+
+    if ativo[5] == "Crítica":
+
+        ativos_criticos += 1
+
+if total_ativos > 0:
+
+    media_score = round(
+        soma_scores / total_ativos,
+        1
+    )
+
+else:
+
+    media_score = 0
+
+col1, col2, col3 = st.columns(3)
+
+with col1:
+
+    st.metric(
+        "Total de Ativos",
+        total_ativos
+    )
+
+with col2:
+
+    st.metric(
+        "Ativos Críticos",
+        ativos_criticos
+    )
+
+with col3:
+
+    st.metric(
+        "Risk Score Médio",
+        media_score
+    )
+
+# =====================================
+# LISTAGEM
+# =====================================
 
 if ativos:
 
