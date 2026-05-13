@@ -26,6 +26,6 @@ def rodar_semgrep(caminho):
             return resultado.stdout
 
     except FileNotFoundError:
-        return "ERRO: Semgrep não instalado no servidor."
+        return "ERRO: O executável do Semgrep não foi encontrado. Certifique-se de que ele está instalado e no PATH do sistema."
     except Exception as e:
         return f"Erro inesperado: {str(e)}"
