@@ -4,7 +4,7 @@ from zapv2 import ZAPv2
 def rodar_zap(url):
     try:
         zap = ZAPv2(
-            apikey='SUA_API_KEY_AQUI',
+            apikey='2sr513moeq15252q90jocg8s8l',
             proxies={'http': 'http://127.0.0.1:8080', 'https': 'http://127.0.0.1:8080'}
         )
 
