@@ -461,59 +461,6 @@ if st.button("🔍 Analisar Ativo"):
         analise_ia
     )
 
-    # =====================================
-    # RESULTADO SAST
-    # =====================================
-
-    if resultado_sast:
-
-        st.markdown(
-            """
-            <div style='
-                font-size:26px;
-                font-weight:700;
-                margin-top:20px;
-                margin-bottom:20px;
-                color:#f5f3ff;
-            '>
-
-            Resultado SAST (Semgrep)
-
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-        st.code(
-            str(resultado_sast)
-        )
-
-    # =====================================
-    # RESULTADO DAST
-    # =====================================
-
-    if resultado_dast:
-
-        st.markdown(
-            """
-            <div style='
-                font-size:26px;
-                font-weight:700;
-                margin-top:20px;
-                margin-bottom:20px;
-                color:#f5f3ff;
-            '>
-
-            Resultado DAST (OWASP ZAP)
-
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-        st.code(
-            str(resultado_dast)
-        )
 
 # =====================================
 # INVENTÁRIO
