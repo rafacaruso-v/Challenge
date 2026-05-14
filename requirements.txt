@@ -1,0 +1,16 @@
+# Framework Web
+streamlit
+
+# Navegação e Interface
+streamlit-option-menu
+
+# Processamento e Gráficos
+pandas
+plotly
+
+# Scanners de Segurança
+semgrep
+python-owasp-zap-v2.4
+
+# Inteligência Artificial
+google-generativeai
