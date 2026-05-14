@@ -161,7 +161,7 @@ if selecionado == "Dashboard":
         with col4: card_kpi("Risco Médio", medios, "#ffd700", "🟡", f"{(medios/total*100):.1f}%" if total > 0 else "0%")
         with col5: card_kpi("Risco Baixo", baixos, "#00c853", "✅", f"{(baixos/total*100):.1f}%" if total > 0 else "0%")
 
-        # --- GRÁFICOS (PASSO 3) ---
+        # --- GRÁFICOS ---
         st.markdown("<br>", unsafe_allow_html=True)
         col_graf1, col_graf2 = st.columns([1, 2])
 
@@ -175,11 +175,26 @@ if selecionado == "Dashboard":
 
         with col_graf2:
             st.markdown("<p style='font-weight:700; font-size:20px;'>Risco por Ambiente (Média de Score)</p>", unsafe_allow_html=True)
-            df_env = df.groupby('ambiente')['score'].mean().reset_index()
-            fig_bar = px.bar(df_env, x='score', y='ambiente', orientation='h', color='score',
-                             color_continuous_scale=['#00c853', '#ffd700', '#ff4b4b'])
-            fig_bar.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color="white"),
-                                  xaxis=dict(showgrid=False), yaxis=dict(showgrid=False), height=300, coloraxis_showscale=False)
+            
+            # Arredondando o score para ficar limpo no gráfico
+            df_env = df.groupby('ambiente')['score'].mean().round(1).reset_index()
+            
+            # Gráfico de barras na cor AZUL (#3b82f6)
+            fig_bar = px.bar(df_env, x='score', y='ambiente', orientation='h', text='score')
+            
+            # Atualizando a cor e posição do texto
+            fig_bar.update_traces(marker_color='#3b82f6', textposition='inside')
+            
+            fig_bar.update_layout(
+                paper_bgcolor='rgba(0,0,0,0)', 
+                plot_bgcolor='rgba(0,0,0,0)', 
+                font=dict(color="white"),
+                xaxis=dict(showgrid=False), 
+                yaxis=dict(showgrid=False), 
+                height=300, 
+                margin=dict(r=20) # Margem para o texto não cortar no final
+            )
+            
             st.plotly_chart(fig_bar, use_container_width=True)
 
         # --- TABELA DE ATIVOS RECENTES ---
