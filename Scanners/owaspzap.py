@@ -4,7 +4,7 @@ from zapv2 import ZAPv2
 
 def rodar_zap(url):
     try:
-        zap_url = 'http://host.docker.internal:8090'
+        zap_url = 'http://127.0.0.1:8090'
         
         zap = ZAPv2(
             apikey='', 
