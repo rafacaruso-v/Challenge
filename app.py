@@ -1,7 +1,10 @@
 import streamlit as st
+import pandas as pd
+import plotly.express as px
+from streamlit_option_menu import option_menu
 
 # =====================================
-# IMPORTS
+# IMPORTS DOS SEUS MÓDULOS
 # =====================================
 from Scanners.owaspzap import rodar_zap
 from Scanners.semgrep import rodar_semgrep
@@ -17,7 +20,7 @@ from Database.db import (
 # =====================================
 st.set_page_config(
     page_title="ASPM Platform",
-    page_icon="🔐",
+    page_icon="🛡️",
     layout="wide"
 )
 
@@ -27,7 +30,7 @@ st.set_page_config(
 criar_tabela()
 
 # =====================================
-# CSS / VISUAL
+# CSS / VISUAL (Consolidado)
 # =====================================
 st.markdown(
     """
@@ -41,15 +44,14 @@ st.markdown(
         border-right: 1px solid rgba(168,85,247,0.15);
         backdrop-filter: blur(10px);
     }
-    #titulo {
-        font-size: 70px;
+    #titulo-principal {
+        font-size: 50px;
         font-weight: 800;
-        text-align: center;
         background: linear-gradient(90deg, #7c3aed, #a855f7, #c084fc, #e9d5ff);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         letter-spacing: 2px;
-        margin-bottom: 15px;
+        margin-bottom: 5px;
         text-shadow: 0px 0px 25px rgba(168,85,247,0.35);
     }
     p, label, div { color: #d8d4fe; }
@@ -73,17 +75,11 @@ st.markdown(
         transform: scale(1.02);
         box-shadow: 0px 0px 20px rgba(168,85,247,0.4);
     }
-    div[data-testid="stMetric"] {
-        background-color: rgba(22,27,34,0.65);
-        border: 1px solid rgba(168,85,247,0.15);
-        padding: 20px;
-        border-radius: 16px;
-        backdrop-filter: blur(12px);
-    }
-    .streamlit-expanderHeader {
-        background-color: rgba(22,27,34,0.75);
+    /* Estilização da Tabela Pandas */
+    [data-testid="stDataFrame"] {
+        background-color: rgba(22,27,34,0.4);
         border-radius: 12px;
-        border: 1px solid rgba(168,85,247,0.12);
+        border: 1px solid rgba(168,85,247,0.1);
     }
     ::-webkit-scrollbar { width: 10px; }
     ::-webkit-scrollbar-thumb { background: #7c3aed; border-radius: 10px; }
@@ -93,111 +89,141 @@ st.markdown(
 )
 
 # =====================================
-# TÍTULO
+# MENU LATERAL
 # =====================================
-st.markdown("<div><p id='titulo'>ASPM Platform</p></div>", unsafe_allow_html=True)
-st.markdown("<p style='text-align:center; font-size:20px; margin-bottom:40px;'>Application Security Posture Management</p>", unsafe_allow_html=True)
-
-# =====================================
-# CADASTRO
-# =====================================
-st.markdown("<div style='font-size:32px; font-weight:700; margin:20px 0; color:#f5f3ff;'>Cadastro de Ativos</div>", unsafe_allow_html=True)
-
-nome = st.text_input("Nome do ativo")
-tipo = st.selectbox("Tipo do ativo", ["API", "Aplicação", "Repositório"])
-url = st.text_input("URL / Caminho do ativo")
-ambiente = st.selectbox("Ambiente", ["Produção", "Homologação", "Desenvolvimento"])
-
-# =====================================
-# BOTÃO DE ANÁLISE
-# =====================================
-if st.button("🔍 Analisar Ativo"):
-    resultado_sast = ""
-    resultado_dast = ""
-    houve_erro = False
-    msg_erro = ""
-
-    # Validação Básica
-    if not url.strip():
-        st.error("❌ URL inválida.")
-        st.stop()
-
-    if tipo in ["API", "Aplicação"] and not (url.startswith("http://") or url.startswith("https://")):
-        st.error("❌ URL inválida. Utilize http:// ou https://")
-        st.stop()
-
-    # Execução das Análises
-    with st.spinner("Executando análise de segurança..."):
-        try:
-            # --- SAST ---
-            if tipo == "Repositório":
-                resultado_sast = rodar_semgrep(url)
-
-            # --- DAST ---
-            if tipo in ["API", "Aplicação"]:
-                resultado_dast = rodar_zap(url)
-                if resultado_dast == "ERRO_PROXY_ZAP":
-                    msg_erro = "❌ Erro ao conectar no OWASP ZAP."
-                    houve_erro = True
-            
-            # --- IA GEMINI (Só executa se não houver erro prévio) ---
-            if not houve_erro:
-                criticidade, score, analise_ia = analisar_vulnerabilidades(
-                    tipo, ambiente, resultado_sast, resultado_dast
-                )
-        except Exception as e:
-            msg_erro = f"❌ Erro inesperado: {e}"
-            houve_erro = True
-
+with st.sidebar:
+    st.markdown("<div style='text-align: center; margin-bottom: 20px;'><h1 style='color: white; font-size: 24px;'>🛡️ ASPM</h1><p style='color: #a855f7; font-size: 12px;'>PLATFORM</p></div>", unsafe_allow_html=True)
     
-    if houve_erro:
-        st.error(msg_erro)
-        st.stop()
-
-    salvar_ativo(nome, tipo, url, ambiente, criticidade, score)
-    st.success("✅ Análise concluída!")
-
-   
-    st.markdown("<div style='font-size:32px; font-weight:700; margin:20px 0; color:#f5f3ff;'>Resultado da Análise</div>", unsafe_allow_html=True)
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        st.metric("Criticidade", criticidade)
-    with col2:
-        st.metric("Risk Score", score)
-
-    st.write(f"Ativo analisado: **{nome}**")
-
-    
-    st.markdown("<div style='font-size:26px; font-weight:700; margin:20px 0; color:#f5f3ff;'>Análise Inteligente da IA</div>", unsafe_allow_html=True)
-    st.write(analise_ia)
+    selecionado = option_menu(
+        menu_title=None, 
+        options=["Dashboard", "Análises", "Ativos"],
+        icons=["house", "search", "list-task"],
+        menu_icon="cast",
+        default_index=0,
+        styles={
+            "container": {"padding": "0!important", "background-color": "transparent"},
+            "icon": {"color": "#a855f7", "font-size": "18px"}, 
+            "nav-link": {
+                "font-size": "16px", 
+                "text-align": "left", 
+                "margin":"5px 0px", 
+                "--hover-color": "rgba(168,85,247,0.1)"
+            },
+            "nav-link-selected": {
+                "background-color": "rgba(168,85,247,0.2)", 
+                "border-left": "4px solid #a855f7"
+            },
+        }
+    )
+    st.markdown("---")
+    st.markdown("<p style='text-align: center; font-size: 12px;'>Logado como Admin</p>", unsafe_allow_html=True)
 
 # =====================================
-# INVENTÁRIO DE ATIVOS
+# LÓGICA DE PÁGINAS
 # =====================================
-st.markdown("<div style='font-size:32px; font-weight:700; margin-top:30px; color:#f5f3ff;'>📊 Inventário de Ativos</div>", unsafe_allow_html=True)
 
-ativos = listar_ativos_db()
-if ativos:
-    # KPIs rápidos
-    total_ativos = len(ativos)
-    ativos_criticos = sum(1 for a in ativos if a[5] == "Crítica")
-    media_score = round(sum(a[6] for a in ativos) / total_ativos, 1) if total_ativos > 0 else 0
+if selecionado == "Dashboard":
+    # --- TÍTULO ---
+    st.markdown("<div><p id='titulo-principal'>ASPM PLATFORM</p></div>", unsafe_allow_html=True)
+    st.markdown("<p style='font-size:18px; margin-bottom:40px; opacity: 0.8;'>Application Security Posture Management</p>", unsafe_allow_html=True)
 
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Total de Ativos", total_ativos)
-    col2.metric("Ativos Críticos", ativos_criticos)
-    col3.metric("Risk Score Médio", media_score)
+    # --- DADOS ---
+    ativos = listar_ativos_db()
+    
+    if ativos:
+        # Converter para DataFrame para facilitar gráficos
+        df = pd.DataFrame(ativos, columns=['id', 'nome', 'tipo', 'url', 'ambiente', 'criticidade', 'score'])
+        
+        total = len(df)
+        criticos = len(df[df['criticidade'] == 'Crítica'])
+        altos = len(df[df['criticidade'] == 'Alta'])
+        medios = len(df[df['criticidade'] == 'Média'])
+        baixos = len(df[df['criticidade'] == 'Baixa'])
 
-    # Listagem em Expansores
-    for ativo in ativos:
-        with st.expander(f"🔎 {ativo[1]} - {ativo[5]}"):
-            st.write(f"**Tipo:** {ativo[2]} | **Ambiente:** {ativo[4]}")
-            st.write(f"**URL:** {ativo[3]}")
-            st.write(f"**Score:** {ativo[6]}")
-            
-            if ativo[5] == "Crítica": st.error("⚠️ Risco Crítico")
-            elif ativo[5] == "Alta": st.warning("⚠️ Alto Risco")
-            else: st.success("✔ Risco Controlado")
-else:
-    st.info("Nenhum ativo cadastrado.")
+        # --- CARDS KPI ---
+        def card_kpi(titulo, valor, cor, icone, subtext):
+            st.markdown(f"""
+                <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.1);
+                    border-left: 5px solid {cor}; padding: 20px; border-radius: 12px; backdrop-filter: blur(10px); margin-bottom: 20px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span style="font-size: 14px; color: #d8d4fe;">{titulo}</span>
+                        <span>{icone}</span>
+                    </div>
+                    <div style="font-size: 32px; font-weight: 800; margin: 10px 0;">{valor}</div>
+                    <div style="font-size: 12px; color: {cor}; font-weight: 600;">{subtext}</div>
+                </div>
+            """, unsafe_allow_html=True)
+
+        col1, col2, col3, col4, col5 = st.columns(5)
+        with col1: card_kpi("Total de Ativos", total, "#7c3aed", "📂", "Monitorados")
+        with col2: card_kpi("Risco Crítico", criticos, "#ff4b4b", "🛡️", f"{(criticos/total*100):.1f}%" if total > 0 else "0%")
+        with col3: card_kpi("Risco Alto", altos, "#ff8c00", "⚠️", f"{(altos/total*100):.1f}%" if total > 0 else "0%")
+        with col4: card_kpi("Risco Médio", medios, "#ffd700", "🟡", f"{(medios/total*100):.1f}%" if total > 0 else "0%")
+        with col5: card_kpi("Risco Baixo", baixos, "#00c853", "✅", f"{(baixos/total*100):.1f}%" if total > 0 else "0%")
+
+        # --- GRÁFICOS (PASSO 3) ---
+        st.markdown("<br>", unsafe_allow_html=True)
+        col_graf1, col_graf2 = st.columns([1, 2])
+
+        with col_graf1:
+            st.markdown("<p style='font-weight:700; font-size:20px;'>Distribuição de Riscos</p>", unsafe_allow_html=True)
+            cores_map = {'Crítica': '#ff4b4b', 'Alta': '#ff8c00', 'Média': '#ffd700', 'Baixa': '#00c853'}
+            fig_donut = px.pie(df, names='criticidade', hole=0.6, color='criticidade', color_discrete_map=cores_map)
+            fig_donut.update_layout(showlegend=True, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', 
+                                    margin=dict(t=10, b=10, l=10, r=10), font=dict(color="white"), height=300)
+            st.plotly_chart(fig_donut, use_container_width=True)
+
+        with col_graf2:
+            st.markdown("<p style='font-weight:700; font-size:20px;'>Risco por Ambiente (Média de Score)</p>", unsafe_allow_html=True)
+            df_env = df.groupby('ambiente')['score'].mean().reset_index()
+            fig_bar = px.bar(df_env, x='score', y='ambiente', orientation='h', color='score',
+                             color_continuous_scale=['#00c853', '#ffd700', '#ff4b4b'])
+            fig_bar.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color="white"),
+                                  xaxis=dict(showgrid=False), yaxis=dict(showgrid=False), height=300, coloraxis_showscale=False)
+            st.plotly_chart(fig_bar, use_container_width=True)
+
+        # --- TABELA DE ATIVOS RECENTES ---
+        st.markdown("<p style='font-weight:700; font-size:24px; margin-top:30px;'>Ativos Recentes</p>", unsafe_allow_html=True)
+        st.dataframe(df[['nome', 'tipo', 'ambiente', 'criticidade', 'score']].sort_values(by='score', ascending=False),
+                     use_container_width=True, hide_index=True)
+    else:
+        st.info("Nenhum ativo analisado ainda. Vá para a aba 'Análises' para começar.")
+
+elif selecionado == "Análises":
+    st.markdown("<div style='font-size:32px; font-weight:700; margin-bottom:20px; color:#f5f3ff;'>Nova Análise de Ativo</div>", unsafe_allow_html=True)
+    
+    nome = st.text_input("Nome do ativo")
+    tipo = st.selectbox("Tipo do ativo", ["API", "Aplicação", "Repositório"])
+    url = st.text_input("URL / Caminho do ativo")
+    ambiente = st.selectbox("Ambiente", ["Produção", "Homologação", "Desenvolvimento"])
+
+    if st.button("🔍 Iniciar Análise"):
+        if not url.strip():
+            st.error("❌ URL inválida.")
+        else:
+            with st.spinner("Executando análise de segurança..."):
+                try:
+                    res_sast = rodar_semgrep(url) if tipo == "Repositório" else ""
+                    res_dast = rodar_zap(url) if tipo in ["API", "Aplicação"] else ""
+                    
+                    if res_dast == "ERRO_PROXY_ZAP":
+                        st.error("❌ Erro ao conectar no OWASP ZAP.")
+                    else:
+                        crit, score, analise = analisar_vulnerabilidades(tipo, ambiente, res_sast, res_dast)
+                        salvar_ativo(nome, tipo, url, ambiente, crit, score)
+                        st.success("✅ Análise concluída!")
+                        st.metric("Risk Score", score)
+                        st.write(analise)
+                except Exception as e:
+                    st.error(f"Erro inesperado: {e}")
+
+elif selecionado == "Ativos":
+    st.markdown("<div style='font-size:32px; font-weight:700; margin-bottom:20px; color:#f5f3ff;'>Inventário de Ativos</div>", unsafe_allow_html=True)
+    ativos = listar_ativos_db()
+    if ativos:
+        for a in ativos:
+            with st.expander(f"🔎 {a[1]} - {a[5]}"):
+                st.write(f"**Tipo:** {a[2]} | **Ambiente:** {a[4]} | **Score:** {a[6]}")
+                st.write(f"**URL:** {a[3]}")
+    else:
+        st.info("Nenhum ativo cadastrado.")
