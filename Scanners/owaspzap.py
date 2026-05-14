@@ -1,5 +1,4 @@
 import time
-import os
 from zapv2 import ZAPv2
 
 def rodar_zap(url):
