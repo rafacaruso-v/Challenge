@@ -2,6 +2,7 @@ import google.generativeai as genai
 from pydantic import BaseModel, Field
 import json
 from google.api_core import exceptions
+import re
 
 # =====================================
 # CONFIGURAÇÃO DE ROTAÇÃO DE CHAVES
@@ -16,150 +17,48 @@ CHAVES_API = [
 class AnaliseVulnerabilidadeSchema(BaseModel):
     criticidade: str = Field(description="Deve ser: Baixa, Média, Alta ou Crítica")
     score: int = Field(description="Pontuação de risco de 0 a 100")
-    explicacao: str = Field(description="Análise detalhada dos achados em português. Seja cético com falsos positivos.")
-    recomendacoes: str = Field(description="Passos práticos para correção em português")
+    explicacao: str = Field(description="Análise detalhada dos achados. Se vazio, parabenize pela segurança.")
+    recomendacoes: str = Field(description="Passos para correção ou melhorias contínuas")
 
 def analisar_vulnerabilidades(tipo, ambiente, resultado_sast, resultado_dast):
     
+
+    dast_esperado = tipo.lower() in ["api", "aplicação web", "web app"]
+    
     prompt = f"""
-Você é um Especialista Sênior em Application Security (AppSec) e Risk Assessment.
-
-Sua tarefa é analisar resultados de scanners SAST e DAST para calcular o risco REAL do ativo, reduzindo falsos positivos e evitando superestimar problemas de baixa criticidade.
-
-==================================================
-CONTEXTO DO ATIVO
-==================================================
-
-Tipo do ativo:
-{tipo}
-
-Ambiente:
-{ambiente}
-
-==================================================
-REGRAS DE ANÁLISE
-==================================================
-
-1. DIFERENCIAÇÃO DE ATIVOS
-
-Se o ativo for uma API:
-- Priorize:
-  - Broken Access Control
-  - Broken Object Level Authorization (BOLA)
-  - Exposição de dados sensíveis
-  - JWT inseguro
-  - Falhas de autenticação
-  - Métodos HTTP inseguros
-  - Rate limiting ausente
-- Ignore problemas puramente visuais/UI.
-
-Se o ativo for uma Aplicação Web:
-- Priorize:
-  - XSS
-  - CSRF
-  - SQL Injection
-  - Upload inseguro
-  - Session Hijacking
-  - Segurança de cookies
-  - CSP/HSTS
-  - Clickjacking
-
-Se o ativo for um Repositório:
-- Priorize:
-  - Secrets hardcoded
-  - Credenciais expostas
-  - Código inseguro
-  - Execução de comandos
-  - SQL Injection
-  - Dependências vulneráveis
-  - Código com risco crítico
-
-==================================================
-CONTEXTO DO AMBIENTE
-==================================================
-
-Produção:
-- Seja rigoroso.
-- Vulnerabilidades exploráveis devem aumentar bastante o score.
-- Vazamento de dados ou falhas críticas devem elevar criticidade rapidamente.
-
-Homologação:
-- Considere risco moderado.
-- Valorize problemas críticos mas reduza impacto operacional.
-
-Desenvolvimento:
-- Foque em orientação técnica e melhoria do código.
-- Não supervalorize headers ausentes ou configurações temporárias.
-
-==================================================
-REGRAS IMPORTANTES
-==================================================
-
-- NÃO considere headers ausentes como vulnerabilidade crítica.
-- NÃO trate falta de CSP/HSTS sozinha como risco alto.
-- NÃO marque o ativo como seguro caso os scanners retornem vazio.
-- Se os dados estiverem vazios, informe:
-  "Falha na coleta de dados dos scanners."
-
-- Seja cético com falsos positivos.
-- Diferencie:
-  - boas práticas
-  - vulnerabilidades realmente exploráveis
-
-- Vulnerabilidades críticas reais:
-  - SQL Injection
-  - RCE
-  - Broken Authentication
-  - Hardcoded Secrets
-  - Path Traversal
-  - SSRF
-  - Deserialization
-  - Access Control
+Você é um Especialista Sênior em AppSec. Sua missão é analisar resultados de segurança para o ativo: {tipo}.
 
 ==================================================
 RESULTADOS DOS SCANNERS
 ==================================================
-
-Resultado SAST:
-{resultado_sast if resultado_sast else "Nenhum resultado"}
-
-Resultado DAST:
-{resultado_dast if resultado_dast else "Nenhum resultado"}
+SAST (Código): {resultado_sast if (resultado_sast and resultado_sast != "[]") else "LIMPO" if resultado_sast == "[]" else "FALHA"}
+DAST (Runtime): {resultado_dast if (resultado_dast and resultado_dast != "[]") else "LIMPO" if resultado_dast == "[]" else "FALHA"}
 
 ==================================================
-FORMATO OBRIGATÓRIO
+LOGICA DE ANALISE POR TIPO DE ATIVO
 ==================================================
+1. SE o tipo for "Repositório":
+   - Ignore completamente o estado do DAST. Foque apenas no SAST.
+   - Se o SAST estiver "LIMPO", o ativo está seguro.
 
-Retorne SOMENTE JSON válido no schema solicitado.
+2. SE o tipo for "API" ou "Aplicação Web":
+   - O DAST é importante. Se o DAST estiver como "FALHA", mencione que a análise dinâmica não foi realizada.
+   - O SAST continua sendo essencial para o código dessas aplicações.
 
-NÃO exiba:
-- score
-- criticidade
-- nível de risco
+3. REGRAS GERAIS:
+   - Se SAST e DAST (quando aplicável) estiverem "LIMPO", parabenize o desenvolvedor sem mencionar falhas de leitura.
+   - SQL Injection e Secrets = Score 90-100 (Crítico).
+   - Não mencione "Falha na leitura" se o scanner simplesmente não encontrou nada (LIMPO).
 
-Esses dados serão exibidos separadamente pela aplicação.
-
-A explicação deve:
-- ser objetiva
-- explicar os riscos encontrados
-- citar apenas riscos relevantes
-- evitar repetir informações desnecessárias
-
-As recomendações devem:
-- ser práticas
-- priorizadas
-- focadas em remediação real
+==================================================
+CONTEXTO: Ambiente {ambiente}
+==================================================
+Retorne SOMENTE JSON.
 """
-
-    # Variável para armazenar o último erro caso todas as chaves falhem
     ultimo_erro = "Nenhuma chave de API configurada."
-
-    # Tenta cada chave na lista
     for chave in CHAVES_API:
         try:
             genai.configure(api_key=chave)
-            
-            # Nota: Recomendo usar "gemini-1.5-flash" se o 2.5 ainda estiver com cotas baixas
             modelo = genai.GenerativeModel("gemini-2.5-flash") 
 
             resposta = modelo.generate_content(
@@ -172,31 +71,22 @@ As recomendações devem:
             )
 
             dados_json = json.loads(resposta.text)
-            criticidade = dados_json.get("criticidade", "Baixa")
-            score = dados_json.get("score", 0)
             
-            rec_raw = dados_json.get('recomendacoes', '')
-
-            import re
-            recomendacoes_limpas = re.sub(r'(\d+\.\s)', r'\n\n\1', rec_raw).strip()
-
-            
+            # Formatação profissional
             texto_formatado = f"""
-**Explicação Técnica:**
+### 📝 Análise de Postura de Segurança
 {dados_json.get('explicacao')}
 
-**Plano de Remediação:**
-{recomendacoes_limpas}
+### 🚀 Plano de Ação Recomendado
+{re.sub(r'(\d+\.\s)', r'\n\n\1', dados_json.get('recomendacoes', '')).strip()}
 """
-            return criticidade, score, texto_formatado
+            return dados_json.get("criticidade"), dados_json.get("score"), texto_formatado
 
         except exceptions.ResourceExhausted:
-            ultimo_erro = "Limite de cota excedido em todas as chaves configuradas."
-            continue # Tenta a próxima chave
-        
+            ultimo_erro = "Cota excedida."
+            continue
         except Exception as e:
-            ultimo_erro = e
+            ultimo_erro = str(e)
             continue
 
-    # Se o loop terminar sem retornar um resultado, aciona a sua mensagem de erro original
     return "Erro", 0, f"Erro na análise da IA: {ultimo_erro}"
