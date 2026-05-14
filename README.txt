@@ -8,7 +8,6 @@ pip install zaproxy
 pip install google.generativeai
 pip install plotly pandas
 pip install streamlit-option-menu
-pip install streamlit-option-menu pandas plotly
 
 (Esse texto vai ser atualizado frequentemente conforme o trabalho aumenta para dizer o que deve ser baixado.)
 
