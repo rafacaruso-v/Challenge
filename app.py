@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from streamlit_option_menu import option_menu
+import base64
+import os
 
 # =====================================
 # IMPORTS DOS SEUS MÓDULOS
@@ -16,7 +18,7 @@ from Database.db import (
 )
 
 # =====================================
-# CONFIGURAÇÃO
+# CONFIGURAÇÃO E FUNÇÃO DE LOGO
 # =====================================
 st.set_page_config(
     page_title="ASPM Platform",
@@ -29,22 +31,48 @@ st.set_page_config(
 # =====================================
 criar_tabela()
 
+def get_base64_image(image_path):
+    if os.path.exists(image_path):
+        with open(image_path, "rb") as img_file:
+            return base64.b64encode(img_file.read()).decode()
+    return None
+
+# COLOQUE O NOME DO SEU ARQUIVO AQUI
+caminho_logo = "logo.png" 
+logo_base64 = get_base64_image(caminho_logo)
+
 # =====================================
-# CSS / VISUAL (Consolidado)
+# CSS / VISUAL (Consolidado e Corrigido)
 # =====================================
 st.markdown(
-    """
+    f"""
     <style>
-    .stApp {
+    .stApp {{
         background: radial-gradient(circle at top, #2b0a3d 0%, #1e1b4b 25%, #111827 55%, #0d1117 100%);
         color: white;
-    }
-    section[data-testid="stSidebar"] {
-        background-color: rgba(13,17,23,0.95);
+    }}
+    
+    /* Sidebar */
+    section[data-testid="stSidebar"] {{
+        background-color: rgba(13,17,23,0.95) !important;
         border-right: 1px solid rgba(168,85,247,0.15);
         backdrop-filter: blur(10px);
-    }
-    #titulo-principal {
+    }}
+
+    /* Estilização do Container do Logo */
+    .logo-container {{
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 0px 0px 50px 0px;
+    }}
+    .logo-img {{
+        width: 250px;
+        filter: drop-shadow(0px 0px 12px rgba(168,85,247,0.3));
+    }}
+
+    #titulo-principal {{
         font-size: 50px;
         font-weight: 800;
         background: linear-gradient(90deg, #7c3aed, #a855f7, #c084fc, #e9d5ff);
@@ -53,52 +81,51 @@ st.markdown(
         letter-spacing: 2px;
         margin-bottom: 5px;
         text-shadow: 0px 0px 25px rgba(168,85,247,0.35);
-    }
-    p, label, div { color: #d8d4fe; }
-    .stTextInput input, .stSelectbox div[data-baseweb="select"] {
-        background-color: rgba(30,41,59,0.75);
-        border: 1px solid rgba(168,85,247,0.2);
+    }}
+    
+    p, label, div {{ color: #d8d4fe; }}
+    
+    .stTextInput input, .stSelectbox div[data-baseweb="select"] {{
+        background-color: rgba(30,41,59,0.75) !important;
+        border: 1px solid rgba(168,85,247,0.2) !important;
         border-radius: 12px;
-        color: white;
-    }
-    .stButton button {
-        background: linear-gradient(90deg, #7c3aed, #a855f7);
-        color: white;
-        border: none;
+        color: white !important;
+    }}
+    
+    .stButton button {{
+        background: linear-gradient(90deg, #7c3aed, #a855f7) !important;
+        color: white !important;
+        border: none !important;
         border-radius: 10px;
         height: 48px;
         width: 100%;
         font-weight: 700;
         transition: 0.3s;
-    }
-    .stButton button:hover {
-        transform: scale(1.02);
-        box-shadow: 0px 0px 20px rgba(168,85,247,0.4);
-    }
-    /* Estilização da Tabela Pandas */
-    [data-testid="stDataFrame"] {
-        background-color: rgba(22,27,34,0.4);
-        border-radius: 12px;
-        border: 1px solid rgba(168,85,247,0.1);
-    }
-    ::-webkit-scrollbar { width: 10px; }
-    ::-webkit-scrollbar-thumb { background: #7c3aed; border-radius: 10px; }
+    }}
     </style>
     """,
     unsafe_allow_html=True
 )
 
 # =====================================
-# MENU LATERAL
+# MENU LATERAL (COM LOGO EM IMAGEM)
 # =====================================
 with st.sidebar:
-    st.markdown("<div style='text-align: center; margin-bottom: 20px;'><h1 style='color: white; font-size: 24px;'>🛡️ ASPM</h1><p style='color: #a855f7; font-size: 12px;'>PLATFORM</p></div>", unsafe_allow_html=True)
+    if logo_base64:
+        # Exibe a imagem centralizada no topo da sidebar
+        st.markdown(f"""
+            <div class="logo-container">
+                <img src="data:image/png;base64,{logo_base64}" class="logo-img">
+            </div>
+        """, unsafe_allow_html=True)
+    else:
+        # Fallback caso a imagem não seja encontrada
+        st.markdown("<h1 style='text-align:center;'>🛡️ ASPM</h1>", unsafe_allow_html=True)
     
     selecionado = option_menu(
         menu_title=None, 
         options=["Dashboard", "Análises", "Ativos"],
         icons=["house", "search", "list-task"],
-        menu_icon="cast",
         default_index=0,
         styles={
             "container": {"padding": "0!important", "background-color": "transparent"},
