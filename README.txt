@@ -6,6 +6,8 @@ pip install streamlit
 pip install semgrep
 pip install zaproxy
 pip install google.generativeai
+pip install plotly pandas
+pip install streamlit-option-menu
 
 (Esse texto vai ser atualizado frequentemente conforme o trabalho aumenta para dizer o que deve ser baixado.)
 
