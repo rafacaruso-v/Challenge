@@ -2,21 +2,30 @@ name: Security Pipeline (Python)
 
 on:
   push:
+    branches: [ "main" ]
   pull_request:
+    branches: [ "main" ]
+
+# Permite que o GitHub Actions escreva no repositório (necessário para o ZAP criar Issues)
+permissions:
+  contents: read
+  issues: write
 
 jobs:
 
   semgrep:
+    name: SAST (Semgrep)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - uses: returntocorp/semgrep-action@v1
+      - name: Run Semgrep
+        uses: returntocorp/semgrep-action@v1
         with:
           config: auto
 
-
   dependency-scan:
+    name: Dependency Scan (Pip-audit)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,16 +37,15 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Install pip-audit
-        run: pip install pip-audit
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
       - name: Run pip-audit
-        run: pip-audit
-
+        run: |
+          pip install pip-audit
+          pip-audit
 
   zap:
+    name: DAST (OWASP ZAP)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -46,19 +54,21 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install app
+      - name: Install app dependencies
         run: |
           pip install -r requirements.txt
 
-      - name: Start Streamlit
+      - name: Start Streamlit App
         run: |
-          nohup streamlit run app.py --server.port 8501 &
-          sleep 15
+          # Inicia o app em background
+          nohup streamlit run app.py --server.port 8501 --server.headless true &
+          # Aguarda o app subir
+          timeout 30s bash -c 'until curl -s http://localhost:8501; do sleep 2; done' || true
 
-      - name: Wait for app
-        run: curl --retry 10 --retry-delay 5 http://localhost:8501 || true
-
-      - name: OWASP ZAP scan
+      - name: OWASP ZAP Baseline Scan
         uses: zaproxy/action-baseline@v0.10.0
         with:
+          token: ${{ secrets.GITHUB_TOKEN }} # Essencial para criar a Issue no GitHub
           target: "http://localhost:8501"
+          issue_title: "Security Scan: OWASP ZAP Alerts Found"
+          fail_action: false
