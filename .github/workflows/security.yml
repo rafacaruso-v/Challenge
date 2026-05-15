@@ -49,6 +49,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
       - name: Install app dependencies
         run: |
           pip install -r requirements.txt
@@ -56,20 +60,14 @@ jobs:
       - name: Start Streamlit App
         run: |
           nohup streamlit run app.py --server.port 8501 --server.headless true &
+          # Aumentei para 60s para garantir que o contêiner não falhe por timeout
           timeout 60s bash -c 'until curl -s http://localhost:8501; do sleep 5; done' || true
 
       - name: OWASP ZAP Baseline Scan
-        uses: zaproxy/action-baseline@v0.12.0
+        uses: zaproxy/action-baseline@v0.15.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           target: "http://localhost:8501"
           issue_title: "Security Scan: OWASP ZAP Alerts Found"
           fail_action: false
-          artifact_name: "" 
-
-      - name: Manual Artifact Upload
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: zap-report${{ github.run_id }}
-          path: zap_report.html
+          artifact_name: "zap-analysis-report"
