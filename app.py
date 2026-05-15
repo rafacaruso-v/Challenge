@@ -37,7 +37,6 @@ def get_base64_image(image_path):
             return base64.b64encode(img_file.read()).decode()
     return None
 
-# COLOQUE O NOME DO SEU ARQUIVO AQUI
 caminho_logo = "logo.png" 
 logo_base64 = get_base64_image(caminho_logo)
 
