@@ -10,55 +10,53 @@ import re
 CHAVES_API = [
     "AIzaSyCnvG-RvQGHa77qbVGEioe19ith0Z6TuJE", 
     "AIzaSyDhRFCWG4mFzovOXsKzNRrk4ZiRWjaujMQ",
-    "AIzaSyCnvG-RvQGHa77qbVGEioe19ith0Z6TuJE",
     "AIzaSyDIQDBB2NCo3eKAFfLwhyYG309mChcgTSw"
 ]
 
 class AnaliseVulnerabilidadeSchema(BaseModel):
     criticidade: str = Field(description="Deve ser: Baixa, Média, Alta ou Crítica")
     score: int = Field(description="Pontuação de risco de 0 a 100")
-    explicacao: str = Field(description="Análise detalhada dos achados. Se vazio, parabenize pela segurança.")
-    recomendacoes: str = Field(description="Passos para correção ou melhorias contínuas")
+    explicacao: str = Field(description="Análise detalhada dos achados.")
+    recomendacoes: str = Field(description="Passos para correção ou melhorias")
 
-def analisar_vulnerabilidades(tipo, ambiente, resultado_sast, resultado_dast):
+def analisar_vulnerabilidades(tipo, url, ambiente, resultado_sast, resultado_dast):
+    # Lógica para ignorar SAST se for URL
+    e_url = url.startswith("http://") or url.startswith("https://")
     
+    if e_url:
+        sast_final = "IGNORADO (O ativo é uma URL/Runtime, análise de código não aplicável)"
+    else:
+        sast_final = resultado_sast if (resultado_sast and resultado_sast != "[]") else "LIMPO"
 
-    dast_esperado = tipo.lower() in ["api", "aplicação web", "web app"]
-    
+    dast_final = resultado_dast if (resultado_dast and resultado_dast != "[]") else "LIMPO"
+
     prompt = f"""
-Você é um Especialista Sênior em AppSec. Sua missão é analisar resultados de segurança para o ativo: {tipo}.
+Você é um Especialista Sênior em AppSec. Analise os resultados para o ativo: {tipo}.
+URL/Caminho: {url}
 
 ==================================================
 RESULTADOS DOS SCANNERS
 ==================================================
-SAST (Código): {resultado_sast if (resultado_sast and resultado_sast != "[]") else "LIMPO" if resultado_sast == "[]" else "FALHA"}
-DAST (Runtime): {resultado_dast if (resultado_dast and resultado_dast != "[]") else "LIMPO" if resultado_dast == "[]" else "FALHA"}
+SAST (Estático): {sast_final}
+DAST (Dinâmico): {dast_final}
 
 ==================================================
-LOGICA DE ANALISE POR TIPO DE ATIVO
+REGRAS DE NEGÓCIO
 ==================================================
-1. SE o tipo for "Repositório":
-   - Ignore completamente o estado do DAST. Foque apenas no SAST.
-   - Se o SAST estiver "LIMPO", o ativo está seguro.
+1. Se SAST estiver como 'IGNORADO', foque sua análise 100% nos resultados do DAST.
+2. Se o scanner DAST retornar 'LIMPO' e o SAST for 'IGNORADO', parabenize o usuário pela segurança da URL.
+3. SQL Injection, XSS Crítico e Exposição de Dados Sensíveis = Score 90-100.
+4. Ignore falhas de leitura. Se o resultado for 'LIMPO', considere o sistema seguro.
 
-2. SE o tipo for "API" ou "Aplicação Web":
-   - O DAST é importante. Se o DAST estiver como "FALHA", mencione que a análise dinâmica não foi realizada.
-   - O SAST continua sendo essencial para o código dessas aplicações.
-
-3. REGRAS GERAIS:
-   - Se SAST e DAST (quando aplicável) estiverem "LIMPO", parabenize o desenvolvedor sem mencionar falhas de leitura.
-   - SQL Injection e Secrets = Score 90-100 (Crítico).
-   - Não mencione "Falha na leitura" se o scanner simplesmente não encontrou nada (LIMPO).
-
-==================================================
-CONTEXTO: Ambiente {ambiente}
-==================================================
+CONTEXTO: Ambiente de {ambiente}.
 Retorne SOMENTE JSON.
 """
-    ultimo_erro = "Nenhuma chave de API configurada."
+
+    ultimo_erro = "Erro desconhecido."
     for chave in CHAVES_API:
         try:
             genai.configure(api_key=chave)
+            
             modelo = genai.GenerativeModel("gemini-2.5-flash") 
 
             resposta = modelo.generate_content(
@@ -72,7 +70,6 @@ Retorne SOMENTE JSON.
 
             dados_json = json.loads(resposta.text)
             
-            # Formatação profissional
             texto_formatado = f"""
 ### 📝 Análise de Postura de Segurança
 {dados_json.get('explicacao')}
