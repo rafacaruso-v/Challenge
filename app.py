@@ -22,7 +22,7 @@ from Database.db import (
 # =====================================
 st.set_page_config(
     page_title="ASPM Platform",
-    page_icon="🛡️",
+    page_icon="logo.ico",
     layout="wide"
 )
 
@@ -41,25 +41,22 @@ def get_base64_image(image_path):
 caminho_logo = "logo.png" 
 logo_base64 = get_base64_image(caminho_logo)
 
-# =====================================
-# CSS / VISUAL (Consolidado e Corrigido)
-# =====================================
 st.markdown(
     f"""
     <style>
+
     .stApp {{
-        background: radial-gradient(circle at top, #2b0a3d 0%, #1e1b4b 25%, #111827 55%, #0d1117 100%);
-        color: white;
+        background: var(--background-color);
+        transition: all 0.8s ease;
     }}
     
-    /* Sidebar */
-    section[data-testid="stSidebar"] {{
-        background-color: rgba(13,17,23,0.95) !important;
-        border-right: 1px solid rgba(168,85,247,0.15);
-        backdrop-filter: blur(10px);
-    }}
-
-    /* Estilização do Container do Logo */
+     section[data-testid="stSidebar"] {
+        "background: var(--secondary-background-color);"
+        "border-right: 1px solid rgba(168,85,247,0.15);"
+        "backdrop-filter: blur(10px);"
+        "transition: all 0.4s ease;"
+    }
+    
     .logo-container {{
         display: flex;
         flex-direction: column;
@@ -67,6 +64,7 @@ st.markdown(
         justify-content: center;
         padding: 0px 0px 50px 0px;
     }}
+
     .logo-img {{
         width: 250px;
         filter: drop-shadow(0px 0px 12px rgba(168,85,247,0.3));
@@ -75,33 +73,58 @@ st.markdown(
     #titulo-principal {{
         font-size: 50px;
         font-weight: 800;
-        background: linear-gradient(90deg, #7c3aed, #a855f7, #c084fc, #e9d5ff);
+        background: linear-gradient(
+            90deg,
+            #7c3aed,
+            #a855f7,
+            #c084fc,
+            #e9d5ff
+        );
+
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
+
         letter-spacing: 2px;
         margin-bottom: 5px;
+
         text-shadow: 0px 0px 25px rgba(168,85,247,0.35);
     }}
-    
-    p, label, div {{ color: #d8d4fe; }}
-    
-    .stTextInput input, .stSelectbox div[data-baseweb="select"] {{
-        background-color: rgba(30,41,59,0.75) !important;
+
+    p, label, div {{
+        color: var(--text-color);
+        transition: 0.2s ease;
+    }}
+
+    .stTextInput input,
+    .stSelectbox div[data-baseweb="select"] {{
+        background-color: var(--secondary-background-color) !important;
         border: 1px solid rgba(168,85,247,0.2) !important;
         border-radius: 12px;
-        color: white !important;
+        transition: 0.4s ease;
+        color: var(--text-color) !important;
     }}
-    
+
     .stButton button {{
-        background: linear-gradient(90deg, #7c3aed, #a855f7) !important;
+        background: linear-gradient(
+            90deg,
+            #7c3aed,
+            #a855f7
+        ) !important;
+
         color: white !important;
+
         border: none !important;
+
         border-radius: 10px;
+
         height: 48px;
         width: 100%;
+
         font-weight: 700;
-        transition: 0.3s;
+
+        transition: 0.3s ease;
     }}
+
     </style>
     """,
     unsafe_allow_html=True
@@ -124,11 +147,11 @@ with st.sidebar:
     
     selecionado = option_menu(
         menu_title=None, 
-        options=["Dashboard", "Análises", "Ativos"],
-        icons=["house", "search", "list-task"],
+        options=["Dashboard", "Análises", "Ativos", "Vulnerabilidades", "Relatórios", "Políticas", "Configurações"],
+        icons=["house-fill", "graph-up-arrow", "pc-display","shield-exclamation", "file-earmark-text","clipboard-check","gear"],
         default_index=0,
         styles={
-            "container": {"padding": "0!important", "background-color": "transparent"},
+            "container": {"padding": "0!important",},
             "icon": {"color": "#a855f7", "font-size": "18px"}, 
             "nav-link": {
                 "font-size": "16px", 
@@ -137,13 +160,42 @@ with st.sidebar:
                 "--hover-color": "rgba(168,85,247,0.1)"
             },
             "nav-link-selected": {
-                "background-color": "rgba(168,85,247,0.2)", 
-                "border-left": "4px solid #a855f7"
+                "background": "linear-gradient(90deg,#a41db8,#2d0b63)",
+                "border-radius":"8px",
+                "color": "white",
+                "padding":"15px",
+                "transition": "all 0.3s ease"
+            },
+            "icon": {
+                    "color": "#c084fc",
+                    "font-size": "18px",
             },
         }
     )
     st.markdown("---")
-    st.markdown("<p style='text-align: center; font-size: 12px;'>Logado como Admin</p>", unsafe_allow_html=True)
+ 
+st.sidebar.markdown(
+    """
+    <div style="
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px;
+        border-radius: 10px;
+        background: #050816;
+        border: 3px solid #c084fc;
+        cursor: pointer;
+        margin-top: 20px;
+    ">
+        <i class="bi bi-box-arrow-right" style="color: #c084fc;"></i>
+        <span style="color: #c084fc; font-weight: 600;">Sair</span>
+
+    </div>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    """,
+    unsafe_allow_html=True
+)
+st.markdown("<p style='text-align: center; font-size: 12px;'>Logado como Admin</p>", unsafe_allow_html=True)
 
 # =====================================
 # LÓGICA DE PÁGINAS
@@ -153,7 +205,7 @@ if selecionado == "Dashboard":
     # --- TÍTULO ---
     st.markdown("<div><p id='titulo-principal'>ASPM PLATFORM</p></div>", unsafe_allow_html=True)
     st.markdown("<p style='font-size:18px; margin-bottom:40px; opacity: 0.8;'>Application Security Posture Management</p>", unsafe_allow_html=True)
-
+    
     # --- DADOS ---
     ativos = listar_ativos_db()
     
@@ -232,7 +284,7 @@ if selecionado == "Dashboard":
         st.info("Nenhum ativo analisado ainda. Vá para a aba 'Análises' para começar.")
 
 elif selecionado == "Análises":
-    st.markdown("<div style='font-size:32px; font-weight:700; margin-bottom:20px; color:#f5f3ff;'>Nova Análise de Ativo</div>", unsafe_allow_html=True)
+    st.markdown("<div style='font-size:32px; font-weight:700; margin-bottom:20px; color:var(--text-color);'>Nova Análise de Ativo</div>", unsafe_allow_html=True)
     
     nome = st.text_input("Nome do ativo")
     tipo = st.selectbox("Tipo do ativo", ["API", "Aplicação", "Repositório"])
@@ -260,7 +312,7 @@ elif selecionado == "Análises":
                     st.error(f"Erro inesperado: {e}")
 
 elif selecionado == "Ativos":
-    st.markdown("<div style='font-size:32px; font-weight:700; margin-bottom:20px; color:#f5f3ff;'>Inventário de Ativos</div>", unsafe_allow_html=True)
+    st.markdown("<div style='font-size:32px; font-weight:700; margin-bottom:20px; color:var(--text-color);'>Inventário de Ativos</div>", unsafe_allow_html=True)
     ativos = listar_ativos_db()
     if ativos:
         for a in ativos:
