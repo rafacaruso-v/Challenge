@@ -226,7 +226,7 @@ if selecionado == "Dashboard":
             fig_donut = px.pie(df, names='criticidade', hole=0.6, color='criticidade', color_discrete_map=cores_map)
             fig_donut.update_layout(showlegend=True, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', 
                                     margin=dict(t=10, b=10, l=10, r=10), font=dict(color="white"), height=300)
-            st.plotly_chart(fig_donut, use_container_width=True)
+            st.plotly_chart(fig_donut, width='content')
 
         with col_graf2:
             st.markdown("<p style='font-weight:700; font-size:20px;'>Risco por Ambiente (Média de Score)</p>", unsafe_allow_html=True)
@@ -235,11 +235,11 @@ if selecionado == "Dashboard":
             fig_bar.update_traces(marker_color='#3b82f6', textposition='inside')
             fig_bar.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color="white"),
                                 xaxis=dict(showgrid=False), yaxis=dict(showgrid=False), height=300, margin=dict(r=20))
-            st.plotly_chart(fig_bar, use_container_width=True)
+            st.plotly_chart(fig_bar, width='content')
 
         st.markdown("<p style='font-weight:700; font-size:24px; margin-top:30px;'>Ativos Recentes</p>", unsafe_allow_html=True)
         st.dataframe(df[['nome', 'tipo', 'ambiente', 'criticidade', 'score']].sort_values(by='score', ascending=False),
-                     use_container_width=True, hide_index=True)
+                     width='content', hide_index=True)
     else:
         st.info("Nenhum ativo analisado ainda. Vá para a aba 'Análises' para começar.")
 
@@ -263,7 +263,6 @@ elif selecionado == "Análises":
                     if res_dast == "ERRO_PROXY_ZAP":
                         st.error("❌ Erro ao conectar no OWASP ZAP.")
                     else:
-                        # --- CORREÇÃO AQUI: Adicionado 'url' na chamada ---
                         crit, score, analise = analisar_vulnerabilidades(tipo, url, ambiente, res_sast, res_dast)
                         
                         salvar_ativo(nome, tipo, url, ambiente, crit, score)
