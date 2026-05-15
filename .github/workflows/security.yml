@@ -6,7 +6,6 @@ on:
   pull_request:
     branches: [ "main" ]
 
-# Permite que o GitHub Actions escreva no repositório (necessário para o ZAP criar Issues)
 permissions:
   contents: read
   issues: write
@@ -63,12 +62,13 @@ jobs:
           # Inicia o app em background
           nohup streamlit run app.py --server.port 8501 --server.headless true &
           # Aguarda o app subir
-          timeout 30s bash -c 'until curl -s http://localhost:8501; do sleep 2; done' || true
+          timeout 40s bash -c 'until curl -s http://localhost:8501; do sleep 2; done' || true
 
       - name: OWASP ZAP Baseline Scan
-        uses: zaproxy/action-baseline@v0.10.0
+        uses: zaproxy/action-baseline@v0.12.0
         with:
-          token: ${{ secrets.GITHUB_TOKEN }} # Essencial para criar a Issue no GitHub
+          token: ${{ secrets.GITHUB_TOKEN }}
           target: "http://localhost:8501"
           issue_title: "Security Scan: OWASP ZAP Alerts Found"
           fail_action: false
+          artifact_name: "zap-analysis-report"
