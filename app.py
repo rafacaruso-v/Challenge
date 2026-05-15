@@ -43,18 +43,17 @@ logo_base64 = get_base64_image(caminho_logo)
 st.markdown(
     f"""
     <style>
-
     .stApp {{
         background: var(--background-color);
         transition: all 0.8s ease;
     }}
     
-     section[data-testid="stSidebar"] {
-        "background: var(--secondary-background-color);"
-        "border-right: 1px solid rgba(168,85,247,0.15);"
-        "backdrop-filter: blur(10px);"
-        "transition: all 0.4s ease;"
-    }
+     section[data-testid="stSidebar"] {{
+        background: var(--secondary-background-color);
+        border-right: 1px solid rgba(168,85,247,0.15);
+        backdrop-filter: blur(10px);
+        transition: all 0.4s ease;
+    }}
     
     .logo-container {{
         display: flex;
@@ -79,13 +78,10 @@ st.markdown(
             #c084fc,
             #e9d5ff
         );
-
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
-
         letter-spacing: 2px;
         margin-bottom: 5px;
-
         text-shadow: 0px 0px 25px rgba(168,85,247,0.35);
     }}
 
@@ -109,39 +105,30 @@ st.markdown(
             #7c3aed,
             #a855f7
         ) !important;
-
         color: white !important;
-
         border: none !important;
-
         border-radius: 10px;
-
         height: 48px;
         width: 100%;
-
         font-weight: 700;
-
         transition: 0.3s ease;
     }}
-
     </style>
     """,
     unsafe_allow_html=True
 )
 
 # =====================================
-# MENU LATERAL (COM LOGO EM IMAGEM)
+# MENU LATERAL
 # =====================================
 with st.sidebar:
     if logo_base64:
-        # Exibe a imagem centralizada no topo da sidebar
         st.markdown(f"""
             <div class="logo-container">
                 <img src="data:image/png;base64,{logo_base64}" class="logo-img">
             </div>
         """, unsafe_allow_html=True)
     else:
-        # Fallback caso a imagem não seja encontrada
         st.markdown("<h1 style='text-align:center;'>🛡️ ASPM</h1>", unsafe_allow_html=True)
     
     selecionado = option_menu(
@@ -151,7 +138,7 @@ with st.sidebar:
         default_index=0,
         styles={
             "container": {"padding": "0!important",},
-            "icon": {"color": "#a855f7", "font-size": "18px"}, 
+            "icon": {"color": "#c084fc", "font-size": "18px"}, 
             "nav-link": {
                 "font-size": "16px", 
                 "text-align": "left", 
@@ -165,14 +152,10 @@ with st.sidebar:
                 "padding":"15px",
                 "transition": "all 0.3s ease"
             },
-            "icon": {
-                    "color": "#c084fc",
-                    "font-size": "18px",
-            },
         }
     )
     st.markdown("---")
- 
+
 st.sidebar.markdown(
     """
     <div style="
@@ -188,7 +171,6 @@ st.sidebar.markdown(
     ">
         <i class="bi bi-box-arrow-right" style="color: #c084fc;"></i>
         <span style="color: #c084fc; font-weight: 600;">Sair</span>
-
     </div>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
     """,
@@ -201,15 +183,12 @@ st.markdown("<p style='text-align: center; font-size: 12px;'>Logado como Admin</
 # =====================================
 
 if selecionado == "Dashboard":
-    # --- TÍTULO ---
     st.markdown("<div><p id='titulo-principal'>ASPM PLATFORM</p></div>", unsafe_allow_html=True)
     st.markdown("<p style='font-size:18px; margin-bottom:40px; opacity: 0.8;'>Application Security Posture Management</p>", unsafe_allow_html=True)
     
-    # --- DADOS ---
     ativos = listar_ativos_db()
     
     if ativos:
-        # Converter para DataFrame para facilitar gráficos
         df = pd.DataFrame(ativos, columns=['id', 'nome', 'tipo', 'url', 'ambiente', 'criticidade', 'score'])
         
         total = len(df)
@@ -218,7 +197,6 @@ if selecionado == "Dashboard":
         medios = len(df[df['criticidade'] == 'Média'])
         baixos = len(df[df['criticidade'] == 'Baixa'])
 
-        # --- CARDS KPI ---
         def card_kpi(titulo, valor, cor, icone, subtext):
             st.markdown(f"""
                 <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.1);
@@ -239,7 +217,6 @@ if selecionado == "Dashboard":
         with col4: card_kpi("Risco Médio", medios, "#ffd700", "🟡", f"{(medios/total*100):.1f}%" if total > 0 else "0%")
         with col5: card_kpi("Risco Baixo", baixos, "#00c853", "✅", f"{(baixos/total*100):.1f}%" if total > 0 else "0%")
 
-        # --- GRÁFICOS ---
         st.markdown("<br>", unsafe_allow_html=True)
         col_graf1, col_graf2 = st.columns([1, 2])
 
@@ -253,29 +230,13 @@ if selecionado == "Dashboard":
 
         with col_graf2:
             st.markdown("<p style='font-weight:700; font-size:20px;'>Risco por Ambiente (Média de Score)</p>", unsafe_allow_html=True)
-            
-            # Arredondando o score para ficar limpo no gráfico
             df_env = df.groupby('ambiente')['score'].mean().round(1).reset_index()
-            
-            # Gráfico de barras na cor AZUL (#3b82f6)
             fig_bar = px.bar(df_env, x='score', y='ambiente', orientation='h', text='score')
-            
-            # Atualizando a cor e posição do texto
             fig_bar.update_traces(marker_color='#3b82f6', textposition='inside')
-            
-            fig_bar.update_layout(
-                paper_bgcolor='rgba(0,0,0,0)', 
-                plot_bgcolor='rgba(0,0,0,0)', 
-                font=dict(color="white"),
-                xaxis=dict(showgrid=False), 
-                yaxis=dict(showgrid=False), 
-                height=300, 
-                margin=dict(r=20) # Margem para o texto não cortar no final
-            )
-            
+            fig_bar.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color="white"),
+                                xaxis=dict(showgrid=False), yaxis=dict(showgrid=False), height=300, margin=dict(r=20))
             st.plotly_chart(fig_bar, use_container_width=True)
 
-        # --- TABELA DE ATIVOS RECENTES ---
         st.markdown("<p style='font-weight:700; font-size:24px; margin-top:30px;'>Ativos Recentes</p>", unsafe_allow_html=True)
         st.dataframe(df[['nome', 'tipo', 'ambiente', 'criticidade', 'score']].sort_values(by='score', ascending=False),
                      use_container_width=True, hide_index=True)
@@ -302,7 +263,9 @@ elif selecionado == "Análises":
                     if res_dast == "ERRO_PROXY_ZAP":
                         st.error("❌ Erro ao conectar no OWASP ZAP.")
                     else:
-                        crit, score, analise = analisar_vulnerabilidades(tipo, ambiente, res_sast, res_dast)
+                        # --- CORREÇÃO AQUI: Adicionado 'url' na chamada ---
+                        crit, score, analise = analisar_vulnerabilidades(tipo, url, ambiente, res_sast, res_dast)
+                        
                         salvar_ativo(nome, tipo, url, ambiente, crit, score)
                         st.success("✅ Análise concluída!")
                         st.metric("Risk Score", score)
