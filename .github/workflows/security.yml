@@ -1,0 +1,77 @@
+name: Security Pipeline (Python)
+
+on:
+  push:
+  pull_request:
+
+jobs:
+
+  # ======================
+  # SAST - Semgrep
+  # ======================
+  semgrep:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Semgrep
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: auto
+
+
+  # ======================
+  # Dependency Scan (pip)
+  # ======================
+  dependency-scan:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install pip-audit
+        run: pip install pip-audit
+
+      - name: Run pip-audit
+        run: pip-audit
+
+
+  # ======================
+  # DAST - OWASP ZAP
+  # ======================
+  zap:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # instala sua app (Streamlit)
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install app dependencies
+        run: pip install -r requirements.txt
+
+      - name: Start Streamlit app
+        run: |
+          nohup streamlit run app.py --server.port 8501 &
+          sleep 10
+
+      - name: Run OWASP ZAP baseline scan
+        uses: zaproxy/action-baseline@v0.10.0
+        with:
+          target: "http://localhost:8501"
