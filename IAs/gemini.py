@@ -13,14 +13,20 @@ CHAVES_API = [
     "AIzaSyDIQDBB2NCo3eKAFfLwhyYG309mChcgTSw"
 ]
 
+# Estrutura para extrair o Nome e o Impacto isolados
+class ItemVulnerabilidade(BaseModel):
+    nome: str = Field(description="Nome claro da vulnerabilidade encontrada (ex: Content Security Policy (CSP) Inadequada, SQL Injection)")
+    impacto: str = Field(description="O que essa vulnerabilidade pode causar e o que um atacante pode fazer explorando ela.")
+
 class AnaliseVulnerabilidadeSchema(BaseModel):
     criticidade: str = Field(description="Deve ser: Baixa, Média, Alta ou Crítica")
     score: int = Field(description="Pontuação de risco de 0 a 100")
-    explicacao: str = Field(description="Análise detalhada dos achados.")
-    recomendacoes: str = Field(description="Passos para correção ou melhorias")
+    vulnerabilidades_encontradas: list[ItemVulnerabilidade] = Field(description="Lista contendo cada uma das vulnerabilidades achadas e seus respectivos impactos.")
+    explicacao_executiva: str = Field(description="Análise de postura de segurança macro e descritiva para o relatório executivo.")
+    recomendacoes: str = Field(description="Passos para correção ou melhorias (Plano de Ação)")
 
 def analisar_vulnerabilidades(tipo, url, ambiente, resultado_sast, resultado_dast):
-    # Lógica para ignorar SAST se for URL
+    
     e_url = url.startswith("http://") or url.startswith("https://")
     
     if e_url:
@@ -44,12 +50,12 @@ DAST (Dinâmico): {dast_final}
 REGRAS DE NEGÓCIO
 ==================================================
 1. Se SAST estiver como 'IGNORADO', foque sua análise 100% nos resultados do DAST.
-2. Se o scanner DAST retornar 'LIMPO' e o SAST for 'IGNORADO', parabenize o usuário pela segurança da URL.
+2. Se o scanner DAST retornar 'LIMPO' e o SAST for 'IGNORADO', popule o JSON indicando sistema seguro e sem vulnerabilidades.
 3. SQL Injection, XSS Crítico e Exposição de Dados Sensíveis = Score 90-100.
-4. Ignore falhas de leitura. Se o resultado for 'LIMPO', considere o sistema seguro.
+4. Mapeie cada falha encontrada na lista de 'vulnerabilidades_encontradas' detalhando o nome exato e o que ela pode causar.
 
 CONTEXTO: Ambiente de {ambiente}.
-Retorne SOMENTE JSON.
+Retorne SOMENTE JSON seguindo estritamente o schema fornecido.
 """
 
     ultimo_erro = "Erro desconhecido."
@@ -70,9 +76,16 @@ Retorne SOMENTE JSON.
 
             dados_json = json.loads(resposta.text)
             
-            texto_formatado = f"""
+            bloco_vulns = ""
+            for v in dados_json.get("vulnerabilidades_encontradas", []):
+                bloco_vulns += f"### 🔴 {v.get('nome')}\n**O que pode causar:** {v.get('impacto')}\n\n"
+                
+            # 2. Monta o bloco estruturado que vai para a aba Relatórios
+            texto_formatado = f"""---VULNS---
+{bloco_vulns.strip()}
+---RELATORIO---
 ### 📝 Análise de Postura de Segurança
-{dados_json.get('explicacao')}
+{dados_json.get('explicacao_executiva')}
 
 ### 🚀 Plano de Ação Recomendado
 {re.sub(r'(\d+\.\s)', r'\n\n\1', dados_json.get('recomendacoes', '')).strip()}

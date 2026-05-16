@@ -17,6 +17,8 @@ def rodar_zap(url):
             print(f"Progresso do Spider: {zap.spider.status(scan_id)}%")
             time.sleep(2)
         
+        print("Análise completa. Coletando resultados do Spider...")
+        
   
         print(f"Iniciando Active Scan em: {url}")
         zap.ascan.set_option_thread_per_host(10)

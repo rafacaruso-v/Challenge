@@ -188,7 +188,7 @@ if selecionado == "Dashboard":
     ativos = listar_ativos_db()
     
     if ativos:
-        df = pd.DataFrame(ativos, columns=['id', 'nome', 'tipo', 'url', 'ambiente', 'criticidade', 'score'])
+        df = pd.DataFrame(ativos, columns=['id', 'nome', 'tipo', 'url', 'ambiente', 'criticidade', 'score', 'analise'])
         
         total = len(df)
         criticos = len(df[df['criticidade'] == 'Crítica'])
@@ -264,7 +264,7 @@ elif selecionado == "Análises":
                     else:
                         crit, score, analise = analisar_vulnerabilidades(tipo, url, ambiente, res_sast, res_dast)
                         
-                        salvar_ativo(nome, tipo, url, ambiente, crit, score)
+                        salvar_ativo(nome, tipo, url, ambiente, crit, score, analise)
                         st.success("✅ Análise concluída!")
                         st.metric("Risk Score", score)
                         st.write(analise)
@@ -281,3 +281,54 @@ elif selecionado == "Ativos":
                 st.write(f"**URL:** {a[3]}")
     else:
         st.info("Nenhum ativo cadastrado.")
+
+elif selecionado == "Vulnerabilidades":
+    st.markdown("<div style='font-size:32px; font-weight:700; margin-bottom:20px; color:var(--text-color);'>Gestão de Vulnerabilidades</div>", unsafe_allow_html=True)
+    
+    ativos = listar_ativos_db()
+    
+    if ativos:
+        opcoes_ativos = {f"{a[1]} - {a[4]}": a for a in ativos}
+        
+        ativo_selecionado = st.selectbox(
+            "Selecione um ativo para visualizar os detalhes das vulnerabilidades:", 
+            options=list(opcoes_ativos.keys())
+        )
+        
+        if ativo_selecionado:
+            dados_ativo = opcoes_ativos[ativo_selecionado]
+
+            st.markdown("## 🔍 Vulnerabilidades encontradas")
+            
+            try:
+                texto_completo = dados_ativo[7]
+                
+                if "---VULNS---" in texto_completo:
+                    conteudo_vulns = texto_completo.split("---VULNS---")[1].split("---RELATORIO---")[0].strip()
+                    st.markdown(conteudo_vulns)
+                else:
+                    
+                    st.markdown(texto_completo)
+                    
+            except IndexError:
+                st.warning("⚠️ O texto da análise está corrompido ou em formato antigo.")
+elif selecionado == "Relatórios":
+    st.markdown("<div style='font-size:32px; font-weight:700; margin-bottom:20px; color:var(--text-color);'>Relatórios de Segurança Executivos</div>", unsafe_allow_html=True)
+    
+    ativos = listar_ativos_db()
+    if ativos:
+        opcoes_ativos = {f"{a[1]} - {a[4]}": a for a in ativos}
+        ativo_sel = st.selectbox("Selecione o ativo para o relatório:", options=list(opcoes_ativos.keys()))
+        
+        if ativo_sel:
+            dados_ativo = opcoes_ativos[ativo_sel]
+            texto_completo = dados_ativo[7]
+            
+            if "---RELATORIO---" in texto_completo:
+                conteudo_relatorio = texto_completo.split("---RELATORIO---")[1].strip()
+                st.markdown(conteudo_relatorio)
+            else:
+                st.info("Gere uma nova análise para este ativo para visualizar o relatório estruturado.")
+
+    else:
+        st.info("Nenhum ativo cadastrado. Faça uma análise primeiro.")
