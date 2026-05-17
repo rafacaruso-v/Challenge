@@ -47,6 +47,19 @@ SAST (Estático): {sast_final}
 DAST (Dinâmico): {dast_final}
 
 ==================================================
+MATRIZ DE CRITICIDADE E SCORE (REGRA DE OURO)
+==================================================
+Você deve definir o campo 'criticidade' e o 'score' (0 a 100) com base no achado mais grave encontrado, seguindo esta régua:
+
+1. 🔴 Crítica (Score 90-100): Se houver falhas como SQL Injection (SQLi), Execução Remota de Código (RCE), Quebra de Controle de Acesso (Broken Access Control) ou vazamento exposto de credenciais/dados sensíveis em runtime.
+2. 🟠 Alta (Score 70-89): Se houver Falhas de Autenticação (senhas fracas/criptografia falha), Desserialização Insegura ou SSRF (Server-Side Request Forgery).
+3. 🟡 Média (Score 40-69): Se houver Cross-Site Scripting (XSS), Configurações Incorretas (Security Misconfiguration) ou uso de Componentes/Bibliotecas Desatualizadas com CVEs conhecidas.
+4. 🟢 Baixa (Score 1-39): Se houver apenas Divulgação de Informações (Information Disclosure de versão de servidor), Ausência de Cabeçalhos de Segurança (HTTP Security Headers) ou Gerenciamento de Sessão Fraco.
+5. ⚪ Limpo (Score 0): Caso não existam vulnerabilidades reais reportadas ou ambos os scanners estejam "LIMPO". Defina a 'criticidade' como "Baixa".
+
+OBS: Caso tiver uma de cada criticidade, sempre priorizar o score com base na que tem o risco maior.
+
+==================================================
 REGRAS DE NEGÓCIO
 ==================================================
 1. Se SAST estiver como 'IGNORADO', foque sua análise 100% nos resultados do DAST.
