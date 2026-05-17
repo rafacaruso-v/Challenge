@@ -11,17 +11,26 @@ def rodar_zap(url):
         zap.core.access_url(url)
         time.sleep(2)
 
+        
         print(f"Iniciando Spider...")
         scan_id = zap.spider.scan(url)
         while int(zap.spider.status(scan_id)) < 100:
             print(f"Progresso do Spider: {zap.spider.status(scan_id)}%")
             time.sleep(2)
+        print("Spider tradicional concluído.")
+
+       
+        print(f"Iniciando Ajax Spider para renderizar JavaScript...")
+        zap.ajaxSpider.scan(url)
         
-        print("Análise completa. Coletando resultados do Spider...")
+        while zap.ajaxSpider.status == 'running':
+            print("Ajax Spider ainda está explorando a aplicação...")
+            time.sleep(5)
+        print("Ajax Spider concluído. Coletando resultados do mapeamento...")
+
         
-  
         print(f"Iniciando Active Scan em: {url}")
-        zap.ascan.set_option_thread_per_host(10)
+        zap.ascan.set_option_thread_per_host(15)
         ascan_id = zap.ascan.scan(url)
         while int(zap.ascan.status(ascan_id)) < 100:
             print(f"Progresso do Active Scan: {zap.ascan.status(ascan_id)}%")
@@ -29,7 +38,6 @@ def rodar_zap(url):
 
         print("Análise completa. Coletando alertas...")
         
-    
         alertas = zap.core.alerts(baseurl=url)
         
         return alertas

@@ -309,9 +309,11 @@ elif selecionado == "Vulnerabilidades":
                 else:
                     
                     st.markdown(texto_completo)
-                    
+    
             except IndexError:
                 st.warning("⚠️ O texto da análise está corrompido ou em formato antigo.")
+    else:
+        st.info("Nenhum ativo cadastrado. Faça uma análise primeiro para gerenciar vulnerabilidades.")
 elif selecionado == "Relatórios":
     st.markdown("<div style='font-size:32px; font-weight:700; margin-bottom:20px; color:var(--text-color);'>Relatórios de Segurança Executivos</div>", unsafe_allow_html=True)
     
