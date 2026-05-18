@@ -21,6 +21,7 @@ def rodar_zap(url):
 
        
         print(f"Iniciando Ajax Spider para renderizar JavaScript...")
+        zap.ajaxSpider.set_option_max_duration(2)
         zap.ajaxSpider.scan(url)
         
         while zap.ajaxSpider.status == 'running':

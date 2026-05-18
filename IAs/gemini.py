@@ -51,13 +51,20 @@ MATRIZ DE CRITICIDADE E SCORE (REGRA DE OURO)
 ==================================================
 Você deve definir o campo 'criticidade' e o 'score' (0 a 100) com base no achado mais grave encontrado, seguindo esta régua:
 
-1. 🔴 Crítica (Score 90-100): Se houver falhas como SQL Injection (SQLi), Execução Remota de Código (RCE), Quebra de Controle de Acesso (Broken Access Control) ou vazamento exposto de credenciais/dados sensíveis em runtime.
-2. 🟠 Alta (Score 70-89): Se houver Falhas de Autenticação (senhas fracas/criptografia falha), Desserialização Insegura ou SSRF (Server-Side Request Forgery).
-3. 🟡 Média (Score 40-69): Se houver Cross-Site Scripting (XSS), Configurações Incorretas (Security Misconfiguration) ou uso de Componentes/Bibliotecas Desatualizadas com CVEs conhecidas.
-4. 🟢 Baixa (Score 1-39): Se houver apenas Divulgação de Informações (Information Disclosure de versão de servidor), Ausência de Cabeçalhos de Segurança (HTTP Security Headers) ou Gerenciamento de Sessão Fraco.
+1. 🔴 Crítica (Score 90-100): Se houver falhas como SQL Injection (SQLi), Execução Remota de Código (RCE), Quebra de Controle de Acesso (Broken Access Control), vazamento exposto de credenciais em runtime, ou Modo Debug Ativado/Exposto em ambiente de PRODUÇÃO.
+2. 🟠 Alta (Score 70-89): Se houver Falhas de Autenticação (senhas fracas/criptografia falha), SSRF (Server-Side Request Forgery), Cross-Site Scripting (XSS).
+3. 🟡 Média (Score 40-69): Se houver Content Security Policy (CSP) ausente, Configurações Incorretas (Security Misconfiguration como Modo Debug ativo em Homologação/Desenvolvimento), ou uso de Componentes/Bibliotecas Desatualizadas com CVEs conhecidas.
+4. 🟢 Baixa (Score 1-39): Se houver APENAS Divulgação de Informações passivas (vazamento de versão de servidor/tecnologias), Ausência de Cabeçalhos de Segurança puramente de configuração (HTTP Security Headers como HSTS, Clickjacking, X-Content-Type) ou Gerenciamento de Sessão Fraco sem exploração ativa.
 5. ⚪ Limpo (Score 0): Caso não existam vulnerabilidades reais reportadas ou ambos os scanners estejam "LIMPO". Defina a 'criticidade' como "Baixa".
 
-OBS: Caso tiver uma de cada criticidade, sempre priorizar o score com base na que tem o risco maior.
+==================================================
+REGRA DE CÁLCULO DE CRITICIDADE E SCORE (CONDIÇÕES)
+==================================================
+A criticidade do ativo deve ser definida pela regra do teto máximo (a falha mais grave dita a regra), ajustada pelas seguintes condições de contexto:
+
+1. Teto Máximo (Highest Watermark): O nível do ativo é definido pela vulnerabilidade de maior severidade encontrada. Uma única falha Média torna o ativo Médio. Não use a quantidade de falhas baixas para mascarar ou rebaixar uma falha de configuração real.
+2. Diferença entre "Cabeçalhos Ausentes" e "Falhas Ativas": O rebaixamento para categoria Baixa SÓ deve ser aplicado se os únicos achados do relatório forem cabeçalhos de proteção ausentes (ex: falta de CSP, falta de HSTS, falta de X-Frame-Options). Se houver QUALQUER falha de comportamento do servidor, exposição de páginas de erro internas, caminhos administrativos ou Modo Debug ativo, o ativo DEVE ser mantido no mínimo como Média.
+3. Fator Ambiente: Avalie o contexto informado no prompt. Se uma falha de configuração perigosa (como Modo Debug) for encontrada em ambiente de "Produção", mude o teto da falha para Crítica. Se for em "Desenvolvimento" ou "Homologação", mantenha como Média.
 
 ==================================================
 REGRAS DE NEGÓCIO

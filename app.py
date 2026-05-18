@@ -267,7 +267,8 @@ elif selecionado == "Análises":
                         salvar_ativo(nome, tipo, url, ambiente, crit, score, analise)
                         st.success("✅ Análise concluída!")
                         st.metric("Risk Score", score)
-                        st.write(analise)
+                        analise_limpa = analise.replace("---VULNS---", "").replace("---RELATORIO---", "")
+                        st.markdown(analise_limpa)
                 except Exception as e:
                     st.error(f"Erro inesperado: {e}")
 
