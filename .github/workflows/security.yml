@@ -26,7 +26,8 @@ jobs:
   dependency-scan:
     name: Dependency Scan (Trivy SCA)
     runs-on: ubuntu-latest
-    permissions:                          
+    permissions:           
+      contents: read               
       security-events: write
     steps:
       - uses: actions/checkout@v4
