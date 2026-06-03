@@ -26,27 +26,28 @@ jobs:
   dependency-scan:
     name: Dependency Scan (Trivy SCA)
     runs-on: ubuntu-latest
-    permissions:           
-      contents: read               
+    permissions:
+      contents: read
       security-events: write
     steps:
       - uses: actions/checkout@v4
 
       - name: Run Trivy SCA
-        uses: aquasecurity/trivy-action@v0.36.0   
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: 'fs'
           scan-ref: '.'
-          format: 'sarif'                
-          output: 'trivy.sarif'          
+          format: 'sarif'
+          output: 'trivy.sarif'
           severity: 'HIGH,CRITICAL'
           exit-code: '1'
 
-      - name: Upload SARIF to GitHub Security
-        uses: github/codeql-action/upload-sarif@v3
-        if: always()                  
+      - name: Upload resultado como artefato
+        uses: actions/upload-artifact@v4
+        if: always()
         with:
-          sarif_file: 'trivy.sarif'
+          name: trivy-results
+          path: trivy.sarif
 
   zap:
     name: DAST (OWASP ZAP)
