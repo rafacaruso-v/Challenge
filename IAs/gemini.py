@@ -13,7 +13,6 @@ CHAVES_API = [
     "AIzaSyDIQDBB2NCo3eKAFfLwhyYG309mChcgTSw"
 ]
 
-# Estrutura para extrair o Nome e o Impacto isolados
 class ItemVulnerabilidade(BaseModel):
     nome: str = Field(description="Nome claro da vulnerabilidade encontrada (ex: Content Security Policy (CSP) Inadequada, SQL Injection)")
     impacto: str = Field(description="O que essa vulnerabilidade pode causar e o que um atacante pode fazer explorando ela.")
@@ -25,14 +24,16 @@ class AnaliseVulnerabilidadeSchema(BaseModel):
     explicacao_executiva: str = Field(description="Análise de postura de segurança macro e descritiva para o relatório executivo.")
     recomendacoes: str = Field(description="Passos para correção ou melhorias (Plano de Ação)")
 
-def analisar_vulnerabilidades(tipo, url, ambiente, resultado_sast, resultado_dast):
+def analisar_vulnerabilidades(tipo, url, ambiente, resultado_sast, resultado_dast, resultado_sca):
     
     e_url = url.startswith("http://") or url.startswith("https://")
     
     if e_url:
         sast_final = "IGNORADO (O ativo é uma URL/Runtime, análise de código não aplicável)"
+        sca_final  = "IGNORADO (O ativo é uma URL/Runtime, análise de dependências não aplicável)"
     else:
         sast_final = resultado_sast if (resultado_sast and resultado_sast != "[]") else "LIMPO"
+        sca_final  = resultado_sca  if (resultado_sca  and resultado_sca  != "[]") else "LIMPO"
 
     dast_final = resultado_dast if (resultado_dast and resultado_dast != "[]") else "LIMPO"
 
@@ -44,6 +45,7 @@ URL/Caminho: {url}
 RESULTADOS DOS SCANNERS
 ==================================================
 SAST (Estático): {sast_final}
+SCA  (Dependências): {sca_final}
 DAST (Dinâmico): {dast_final}
 
 ==================================================
@@ -56,6 +58,9 @@ Você deve definir o campo 'criticidade' e o 'score' (0 a 100) com base no achad
 3. 🟡 Média (Score 40-69): Se houver Content Security Policy (CSP) ausente, Configurações Incorretas (Security Misconfiguration como Modo Debug ativo em Homologação/Desenvolvimento), ou uso de Componentes/Bibliotecas Desatualizadas com CVEs conhecidas.
 4. 🟢 Baixa (Score 1-39): Se houver APENAS Divulgação de Informações passivas (vazamento de versão de servidor/tecnologias), Ausência de Cabeçalhos de Segurança puramente de configuração (HTTP Security Headers como HSTS, Clickjacking, X-Content-Type) ou Gerenciamento de Sessão Fraco sem exploração ativa.
 5. ⚪ Limpo (Score 0): Caso não existam vulnerabilidades reais reportadas ou ambos os scanners estejam "LIMPO". Defina a 'criticidade' como "Baixa".
+
+SCA (Dependências): CVEs críticos em bibliotecas = Score mínimo Média (40).
+   Se o CVE tiver exploit público conhecido, eleve para Alta ou Crítica.
 
 ==================================================
 REGRA DE CÁLCULO DE CRITICIDADE E SCORE (CONDIÇÕES)

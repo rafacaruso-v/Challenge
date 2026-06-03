@@ -10,6 +10,7 @@ import os
 # =====================================
 from Scanners.owaspzap import rodar_zap
 from Scanners.semgrep import rodar_semgrep
+from Scanners.trivy import rodar_trivy
 from IAs.gemini import analisar_vulnerabilidades
 from Database.db import (
     criar_tabela,
@@ -258,11 +259,12 @@ elif selecionado == "Análises":
                 try:
                     res_sast = rodar_semgrep(url) if tipo == "Repositório" else ""
                     res_dast = rodar_zap(url) if tipo in ["API", "Aplicação"] else ""
-                    
+                    res_sca  = rodar_trivy(url)   if tipo == "Repositório" else ""
+
                     if res_dast == "ERRO_PROXY_ZAP":
                         st.error("❌ Erro ao conectar no OWASP ZAP.")
                     else:
-                        crit, score, analise = analisar_vulnerabilidades(tipo, url, ambiente, res_sast, res_dast)
+                        crit, score, analise = analisar_vulnerabilidades(tipo, url, ambiente, res_sast, res_dast, res_sca)
                         
                         salvar_ativo(nome, tipo, url, ambiente, crit, score, analise)
                         st.success("✅ Análise concluída!")
