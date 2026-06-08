@@ -179,6 +179,46 @@ st.sidebar.markdown(
 )
 
 # =====================================
+# HELPER: parse dos blocos de análise
+# =====================================
+def _parse_blocos(texto_completo):
+    """
+    Retorna (sast_dast_conteudo, sca_conteudo, relatorio_conteudo)
+    compatível com o formato novo (---VULNS_SAST_DAST--- / ---VULNS_SCA---) 
+    e com o formato legado (---VULNS--- / ---RELATORIO---).
+    """
+    sast_dast = ""
+    sca       = ""
+    relatorio = ""
+
+    # ── Formato novo ──────────────────────────────────────────────────────
+    if "---VULNS_SAST_DAST---" in texto_completo:
+        sast_dast = texto_completo.split("---VULNS_SAST_DAST---")[1].split("---VULNS_SCA---")[0].strip()
+        sca       = texto_completo.split("---VULNS_SCA---")[1].split("---RELATORIO---")[0].strip()
+
+    # ── Formato legado (ativos antigos no banco) ───────────────────────────
+    elif "---VULNS---" in texto_completo:
+        bloco_vulns = texto_completo.split("---VULNS---")[1].split("---RELATORIO---")[0].strip()
+
+        if "[DIVISAO_SCA]" in bloco_vulns:
+            partes    = bloco_vulns.split("[DIVISAO_SCA]")
+            sast_dast = partes[0].strip()
+            sca       = partes[1].strip()
+        else:
+            sast_dast = bloco_vulns
+            sca       = "Nenhuma vulnerabilidade de dependências registrada neste formato."
+
+    # ── Fallback: texto puro sem delimitadores ────────────────────────────
+    else:
+        sast_dast = texto_completo
+
+    if "---RELATORIO---" in texto_completo:
+        relatorio = texto_completo.split("---RELATORIO---")[1].strip()
+
+    return sast_dast, sca, relatorio
+
+
+# =====================================
 # LÓGICA DE PÁGINAS
 # =====================================
 
@@ -191,11 +231,11 @@ if selecionado == "Dashboard":
     if ativos:
         df = pd.DataFrame(ativos, columns=['id', 'nome', 'tipo', 'url', 'ambiente', 'criticidade', 'score', 'analise'])
         
-        total = len(df)
+        total   = len(df)
         criticos = len(df[df['criticidade'] == 'Crítica'])
-        altos = len(df[df['criticidade'] == 'Alta'])
-        medios = len(df[df['criticidade'] == 'Média'])
-        baixos = len(df[df['criticidade'] == 'Baixa'])
+        altos    = len(df[df['criticidade'] == 'Alta'])
+        medios   = len(df[df['criticidade'] == 'Média'])
+        baixos   = len(df[df['criticidade'] == 'Baixa'])
 
         def card_kpi(titulo, valor, cor, icone, subtext):
             st.markdown(f"""
@@ -211,11 +251,11 @@ if selecionado == "Dashboard":
             """, unsafe_allow_html=True)
 
         col1, col2, col3, col4, col5 = st.columns(5)
-        with col1: card_kpi("Total de Ativos", total, "#7c3aed", "📂", "Monitorados")
-        with col2: card_kpi("Risco Crítico", criticos, "#ff4b4b", "🛡️", f"{(criticos/total*100):.1f}%" if total > 0 else "0%")
-        with col3: card_kpi("Risco Alto", altos, "#ff8c00", "⚠️", f"{(altos/total*100):.1f}%" if total > 0 else "0%")
-        with col4: card_kpi("Risco Médio", medios, "#ffd700", "🟡", f"{(medios/total*100):.1f}%" if total > 0 else "0%")
-        with col5: card_kpi("Risco Baixo", baixos, "#00c853", "✅", f"{(baixos/total*100):.1f}%" if total > 0 else "0%")
+        with col1: card_kpi("Total de Ativos", total,    "#7c3aed", "📂", "Monitorados")
+        with col2: card_kpi("Risco Crítico",   criticos, "#ff4b4b", "🛡️", f"{(criticos/total*100):.1f}%" if total > 0 else "0%")
+        with col3: card_kpi("Risco Alto",      altos,    "#ff8c00", "⚠️", f"{(altos/total*100):.1f}%"    if total > 0 else "0%")
+        with col4: card_kpi("Risco Médio",     medios,   "#ffd700", "🟡", f"{(medios/total*100):.1f}%"   if total > 0 else "0%")
+        with col5: card_kpi("Risco Baixo",     baixos,   "#00c853", "✅", f"{(baixos/total*100):.1f}%"   if total > 0 else "0%")
 
         st.markdown("<br>", unsafe_allow_html=True)
         col_graf1, col_graf2 = st.columns([1, 2])
@@ -246,9 +286,9 @@ if selecionado == "Dashboard":
 elif selecionado == "Análises":
     st.markdown("<div style='font-size:32px; font-weight:700; margin-bottom:20px; color:var(--text-color);'>Nova Análise de Ativo</div>", unsafe_allow_html=True)
     
-    nome = st.text_input("Nome do ativo")
-    tipo = st.selectbox("Tipo do ativo", ["API", "Aplicação", "Repositório"])
-    url = st.text_input("URL / Caminho do ativo")
+    nome     = st.text_input("Nome do ativo")
+    tipo     = st.selectbox("Tipo do ativo", ["API", "Aplicação", "Repositório"])
+    url      = st.text_input("URL / Caminho do ativo")
     ambiente = st.selectbox("Ambiente", ["Produção", "Homologação", "Desenvolvimento"])
 
     if st.button("🔍 Iniciar Análise"):
@@ -257,20 +297,35 @@ elif selecionado == "Análises":
         else:
             with st.spinner("Executando análise de segurança..."):
                 try:
-                    res_sast = rodar_semgrep(url) if tipo == "Repositório" else ""
-                    res_dast = rodar_zap(url) if tipo in ["API", "Aplicação"] else ""
-                    res_sca  = rodar_trivy(url)   if tipo == "Repositório" else ""
+                    res_sast = rodar_semgrep(url) if tipo == "Repositório"            else ""
+                    res_dast = rodar_zap(url)      if tipo in ["API", "Aplicação"]    else ""
+                    res_sca  = rodar_trivy(url)    if tipo == "Repositório"           else ""
 
                     if res_dast == "ERRO_PROXY_ZAP":
                         st.error("❌ Erro ao conectar no OWASP ZAP.")
                     else:
                         crit, score, analise = analisar_vulnerabilidades(tipo, url, ambiente, res_sast, res_dast, res_sca)
-                        
                         salvar_ativo(nome, tipo, url, ambiente, crit, score, analise)
                         st.success("✅ Análise concluída!")
                         st.metric("Risk Score", score)
-                        analise_limpa = analise.replace("---VULNS---", "").replace("---RELATORIO---", "")
-                        st.markdown(analise_limpa)
+
+                        sast_dast_conteudo, sca_conteudo, _ = _parse_blocos(analise)
+
+                        st.markdown("<br><h3>📋 Resultados Detalhados</h3>", unsafe_allow_html=True)
+
+                        if tipo == "Repositório":
+                            aba_sast, aba_sca = st.tabs(["🔬 Relatório SAST", "📦 Relatório SCA"])
+                            with aba_sast:
+                                st.markdown(sast_dast_conteudo)
+                            with aba_sca:
+                                st.markdown(sca_conteudo)
+                        else:
+                            aba_dast, aba_sca = st.tabs(["🌐 Relatório DAST", "📦 Relatório SCA"])
+                            with aba_dast:
+                                st.markdown(sast_dast_conteudo)
+                            with aba_sca:
+                                st.markdown(sca_conteudo)
+
                 except Exception as e:
                     st.error(f"Erro inesperado: {e}")
 
@@ -301,22 +356,20 @@ elif selecionado == "Vulnerabilidades":
         if ativo_selecionado:
             dados_ativo = opcoes_ativos[ativo_selecionado]
 
-            st.markdown("## 🔍 Vulnerabilidades encontradas")
-            
             try:
-                texto_completo = dados_ativo[7]
-                
-                if "---VULNS---" in texto_completo:
-                    conteudo_vulns = texto_completo.split("---VULNS---")[1].split("---RELATORIO---")[0].strip()
-                    st.markdown(conteudo_vulns)
-                else:
-                    
-                    st.markdown(texto_completo)
-    
+                sast_dast_conteudo, sca_conteudo, _ = _parse_blocos(dados_ativo[7])
+
+                aba_sd, aba_sca = st.tabs(["🔬 SAST / DAST", "📦 SCA"])
+                with aba_sd:
+                    st.markdown(sast_dast_conteudo)
+                with aba_sca:
+                    st.markdown(sca_conteudo)
+
             except IndexError:
                 st.warning("⚠️ O texto da análise está corrompido ou em formato antigo.")
     else:
         st.info("Nenhum ativo cadastrado. Faça uma análise primeiro para gerenciar vulnerabilidades.")
+
 elif selecionado == "Relatórios":
     st.markdown("<div style='font-size:32px; font-weight:700; margin-bottom:20px; color:var(--text-color);'>Relatórios de Segurança Executivos</div>", unsafe_allow_html=True)
     
@@ -326,14 +379,12 @@ elif selecionado == "Relatórios":
         ativo_sel = st.selectbox("Selecione o ativo para o relatório:", options=list(opcoes_ativos.keys()))
         
         if ativo_sel:
-            dados_ativo = opcoes_ativos[ativo_sel]
-            texto_completo = dados_ativo[7]
-            
-            if "---RELATORIO---" in texto_completo:
-                conteudo_relatorio = texto_completo.split("---RELATORIO---")[1].strip()
-                st.markdown(conteudo_relatorio)
+            dados_ativo  = opcoes_ativos[ativo_sel]
+            _, _, relatorio_conteudo = _parse_blocos(dados_ativo[7])
+
+            if relatorio_conteudo:
+                st.markdown(relatorio_conteudo)
             else:
                 st.info("Gere uma nova análise para este ativo para visualizar o relatório estruturado.")
-
     else:
         st.info("Nenhum ativo cadastrado. Faça uma análise primeiro.")
