@@ -191,12 +191,10 @@ def _parse_blocos(texto_completo):
     sca       = ""
     relatorio = ""
 
-    # ── Formato novo ──────────────────────────────────────────────────────
     if "---VULNS_SAST_DAST---" in texto_completo:
         sast_dast = texto_completo.split("---VULNS_SAST_DAST---")[1].split("---VULNS_SCA---")[0].strip()
         sca       = texto_completo.split("---VULNS_SCA---")[1].split("---RELATORIO---")[0].strip()
 
-    # ── Formato legado (ativos antigos no banco) ───────────────────────────
     elif "---VULNS---" in texto_completo:
         bloco_vulns = texto_completo.split("---VULNS---")[1].split("---RELATORIO---")[0].strip()
 
@@ -208,7 +206,6 @@ def _parse_blocos(texto_completo):
             sast_dast = bloco_vulns
             sca       = "Nenhuma vulnerabilidade de dependências registrada neste formato."
 
-    # ── Fallback: texto puro sem delimitadores ────────────────────────────
     else:
         sast_dast = texto_completo
 

@@ -23,6 +23,47 @@ jobs:
         with:
           config: auto
 
+  secrets-scan:
+    name: Deploy - Secrets (Gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Upload Gitleaks Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gitleaks-report
+          path: results.sarif
+
+  pipeline-scan:
+    name: Deploy - Pipeline CI/CD (Zizmor)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Zizmor
+        run: pip install zizmor
+
+      - name: Run Zizmor
+        run: |
+          zizmor --format sarif .github/workflows/security.yml > zizmor-results.sarif || true
+
+      - name: Upload Zizmor Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: zizmor-report
+          path: zizmor-results.sarif
+
   dependency-scan:
     name: Dependency Scan (Trivy SCA)
     runs-on: ubuntu-latest
@@ -49,10 +90,31 @@ jobs:
           name: trivy-results
           path: trivy.sarif
 
+  sbom:
+    name: Deploy - SBOM (Trivy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate SBOM
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'cyclonedx'
+          output: 'sbom.json'
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sbom-cyclonedx
+          path: sbom.json
+
   zap:
     name: DAST (OWASP ZAP)
     runs-on: ubuntu-latest
-    needs: [semgrep, dependency-scan]
+    needs: [semgrep, secrets-scan, pipeline-scan, dependency-scan, sbom]
     steps:
       - uses: actions/checkout@v4
 
