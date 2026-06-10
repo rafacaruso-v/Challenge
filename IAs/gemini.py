@@ -1,7 +1,7 @@
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from pydantic import BaseModel, Field
 import json
-from google.api_core import exceptions
 import re
 import os
 from dotenv import load_dotenv
@@ -15,27 +15,50 @@ load_dotenv()
 # CONFIGURAÇÃO DE ROTAÇÃO DE CHAVES
 # =====================================
 CHAVES_API = [
-    os.environ.get("GEMINI_KEY_1", ""),
-    os.environ.get("GEMINI_KEY_2", ""),
-    os.environ.get("GEMINI_KEY_3", ""),
+    chave for chave in [
+        os.environ.get("GEMINI_KEY_1", ""),
+        os.environ.get("GEMINI_KEY_2", ""),
+        os.environ.get("GEMINI_KEY_3", ""),
+    ]
+    if chave.strip()
 ]
 
+# =====================================
+# SCHEMA
+# =====================================
 class AnaliseVulnerabilidadeSchema(BaseModel):
     criticidade: str = Field(description="Deve ser: Baixa, Média, Alta ou Crítica")
     score: int = Field(description="Pontuação de risco de 0 a 100")
-    vulnerabilidades_sast: str = Field(description="Resumo descritivo das vulnerabilidades encontradas pelo SAST (Semgrep). Se SAST estiver como 'IGNORADO' ou 'LIMPO', retorne string vazia.")
-    vulnerabilidades_dast: str = Field(description="Resumo descritivo das vulnerabilidades encontradas pelo DAST (ZAP). Se DAST estiver como 'IGNORADO' ou 'LIMPO', retorne string vazia.")
+
+    # SAST por nível
+    criticos_sast: list[str] = Field(description="Lista de vulnerabilidades CRÍTICAS encontradas pelo SAST (Semgrep). Formato: 'TipoVuln: descrição breve do problema e arquivo/linha afetada'. Se não houver ou SAST for IGNORADO, retorne lista vazia.")
+    altos_sast:    list[str] = Field(description="Lista de vulnerabilidades ALTAS encontradas pelo SAST. Mesmo formato. Se não houver ou SAST for IGNORADO, retorne lista vazia.")
+    medios_sast:   list[str] = Field(description="Lista de vulnerabilidades MÉDIAS encontradas pelo SAST. Mesmo formato. Se não houver ou SAST for IGNORADO, retorne lista vazia.")
+    baixos_sast:   list[str] = Field(description="Lista de vulnerabilidades BAIXAS encontradas pelo SAST. Mesmo formato. Se não houver ou SAST for IGNORADO, retorne lista vazia.")
+
+    # DAST por nível
+    criticos_dast: list[str] = Field(description="Lista de vulnerabilidades CRÍTICAS encontradas pelo DAST (OWASP ZAP). Formato: 'TipoVuln: descrição breve do problema e endpoint afetado'. Se não houver ou DAST for IGNORADO, retorne lista vazia.")
+    altos_dast:    list[str] = Field(description="Lista de vulnerabilidades ALTAS encontradas pelo DAST. Mesmo formato. Se não houver ou DAST for IGNORADO, retorne lista vazia.")
+    medios_dast:   list[str] = Field(description="Lista de vulnerabilidades MÉDIAS encontradas pelo DAST. Mesmo formato. Se não houver ou DAST for IGNORADO, retorne lista vazia.")
+    baixos_dast:   list[str] = Field(description="Lista de vulnerabilidades BAIXAS encontradas pelo DAST. Mesmo formato. Se não houver ou DAST for IGNORADO, retorne lista vazia.")
+
+    # SCA por nível
     criticos: list[str] = Field(description="Lista de CVEs Críticos do SCA. Formato: 'NomeBiblioteca: tipo do problema (CVE-XXXX, CVE-YYYY)'. Se não houver, retorne lista vazia.")
-    altos: list[str] = Field(description="Lista de CVEs Altos do SCA. Mesmo formato. Se não houver, retorne lista vazia.")
-    medios: list[str] = Field(description="Lista de CVEs Médios do SCA. Mesmo formato. Se não houver, retorne lista vazia.")
-    baixos: list[str] = Field(description="Lista de CVEs Baixos do SCA. Mesmo formato. Se não houver, retorne lista vazia.")
+    altos:    list[str] = Field(description="Lista de CVEs Altos do SCA. Mesmo formato. Se não houver, retorne lista vazia.")
+    medios:   list[str] = Field(description="Lista de CVEs Médios do SCA. Mesmo formato. Se não houver, retorne lista vazia.")
+    baixos:   list[str] = Field(description="Lista de CVEs Baixos do SCA. Mesmo formato. Se não houver, retorne lista vazia.")
+
     explicacao_executiva: str = Field(description="Análise de postura de segurança macro e descritiva para o relatório executivo.")
     recomendacoes: str = Field(description="Passos para correção ou melhorias (Plano de Ação)")
 
+
 def analisar_vulnerabilidades(tipo, url, ambiente, resultado_sast, resultado_dast, resultado_sca=""):
-    
+
+    if not CHAVES_API:
+        return "Erro", 0, "Erro na análise da IA: Nenhuma chave de API encontrada. Verifique o arquivo .env (GEMINI_KEY_1, GEMINI_KEY_2, GEMINI_KEY_3)."
+
     e_url = url.startswith("http://") or url.startswith("https://")
-    
+
     if e_url:
         sast_final = "IGNORADO (O ativo é uma URL/Runtime, análise de código não aplicável)"
         sca_final  = "IGNORADO (O ativo é uma URL/Runtime, análise de dependências não aplicável)"
@@ -77,16 +100,17 @@ REGRA DE CÁLCULO DE CRITICIDADE E SCORE (CONDIÇÕES)
 ==================================================
 REGRAS DE NEGÓCIO
 ==================================================
-1. Se SAST estiver como 'IGNORADO', foque sua análise nos resultados do DAST e SCA. O campo 'vulnerabilidades_sast' deve ser string vazia.
-2. Se DAST estiver como 'IGNORADO', foque sua análise nos resultados do SAST e SCA. O campo 'vulnerabilidades_dast' deve ser string vazia.
+1. Se SAST estiver como 'IGNORADO', todos os campos criticos_sast, altos_sast, medios_sast, baixos_sast devem ser listas vazias.
+2. Se DAST estiver como 'IGNORADO', todos os campos criticos_dast, altos_dast, medios_dast, baixos_dast devem ser listas vazias.
 3. Somente indique sistema seguro (Score 0) se TODOS os scanners aplicáveis retornarem 'LIMPO' ou 'IGNORADO'.
 4. SQL Injection e XSS Crítico = Score 90-100, SOMENTE se reportados pelo SAST. Nunca infira essas falhas a partir de resultados do SCA.
 5. SCA detecta APENAS CVEs em bibliotecas/dependências. Mesmo que o nome do CVE contenha termos como "SQL Injection", "XSS" ou "RCE", ele deve ser classificado pela severidade real do CVE no Trivy (CRITICAL, HIGH, MEDIUM, LOW), nunca elevado para Score 90-100 por inferência do nome do ataque.
 6. CVEs com severidade CRITICAL ou HIGH no SCA com exploit público confirmado = Alta (70-89). Somente eleve para Crítica (90-100) se o CVE permitir RCE ou controle total do sistema com exploit público ativo.
 7. CVEs com severidade MEDIUM no SCA sem exploit público = mínimo Média (40-69).
 8. Para o SCA: classifique cada CVE nos campos 'criticos', 'altos', 'medios' ou 'baixos' de acordo com sua severidade INDIVIDUAL. Cada campo é uma lista onde cada item segue o formato: 'NomeBiblioteca: tipo do problema (CVE-XXXX, CVE-YYYY)'. Agrupe CVEs da mesma biblioteca e mesmo tipo em um único item da lista.
-9. Para o SAST e DAST: preencha os campos 'vulnerabilidades_sast' e 'vulnerabilidades_dast' com texto descritivo das falhas encontradas, detalhando nome da vulnerabilidade, arquivo/endpoint afetado e impacto.
-10. PROIBIDO classificar tudo como Crítico. Se o score geral é 95 mas um CVE causa apenas DoS, ele pertence ao campo 'medios', não 'criticos'.
+9. Para o SAST: classifique cada vulnerabilidade nos campos criticos_sast, altos_sast, medios_sast ou baixos_sast de acordo com sua severidade. Formato: 'TipoVuln: descrição breve do problema e arquivo/linha afetada'.
+10. Para o DAST: classifique cada vulnerabilidade nos campos criticos_dast, altos_dast, medios_dast ou baixos_dast de acordo com sua severidade. Formato: 'TipoVuln: descrição breve do problema e endpoint afetado'.
+11. PROIBIDO classificar tudo como Crítico. Se o score geral é 95 mas um CVE causa apenas DoS, ele pertence ao campo 'medios', não 'criticos'.
 
 CONTEXTO: Ambiente de {ambiente}.
 Retorne SOMENTE JSON seguindo estritamente o schema fornecido.
@@ -95,13 +119,12 @@ Retorne SOMENTE JSON seguindo estritamente o schema fornecido.
     ultimo_erro = "Erro desconhecido."
     for chave in CHAVES_API:
         try:
-            genai.configure(api_key=chave)
-            
-            modelo = genai.GenerativeModel("gemini-2.5-flash")
+            cliente = genai.Client(api_key=chave)
 
-            resposta = modelo.generate_content(
-                prompt,
-                generation_config=genai.GenerationConfig(
+            resposta = cliente.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=prompt,
+                config=types.GenerateContentConfig(
                     response_mime_type="application/json",
                     response_schema=AnaliseVulnerabilidadeSchema,
                     temperature=0.1
@@ -110,57 +133,51 @@ Retorne SOMENTE JSON seguindo estritamente o schema fornecido.
 
             dados_json = json.loads(resposta.text)
 
-            bloco_vulns = "## 🔍 Vulnerabilidades Encontradas\n\n---\n\n"
+            # ── Remove duplicatas mantendo a ordem ──
+            def _dedup(lst): return list(dict.fromkeys(lst))
 
-            vuln_sast = dados_json.get("vulnerabilidades_sast", "").strip()
-            if vuln_sast:
-                bloco_vulns += "### 🧪 SAST (Semgrep)\n\n"
-                bloco_vulns += f"{vuln_sast}\n\n---\n\n"
+            # ── Monta bloco por nível com marcadores para o app.py ──
+            def _montar_bloco_nivel(niveis: dict) -> str:
+                bloco = ""
+                for label, (emoji, cor_tag, items) in niveis.items():
+                    if items:
+                        bloco += f"[NIVEL:{cor_tag}]{emoji} {label}[/NIVEL]\n"
+                        for item in items:
+                            bloco += f"- {item}\n"
+                        bloco += "\n"
+                return bloco
 
-            vuln_dast = dados_json.get("vulnerabilidades_dast", "").strip()
-            if vuln_dast:
-                bloco_vulns += "### 🌐 DAST (OWASP ZAP)\n\n"
-                bloco_vulns += f"{vuln_dast}\n\n---\n\n"
+            niveis_sast = {
+                "Crítico": ("🔴", "critico", _dedup(dados_json.get("criticos_sast", []))),
+                "Alto":    ("🟠", "alto",    _dedup(dados_json.get("altos_sast",    []))),
+                "Médio":   ("🟡", "medio",   _dedup(dados_json.get("medios_sast",   []))),
+                "Baixo":   ("🟢", "baixo",   _dedup(dados_json.get("baixos_sast",   []))),
+            }
 
-            criticos = dados_json.get("criticos", [])
-            altos    = dados_json.get("altos",    [])
-            medios   = dados_json.get("medios",   [])
-            baixos   = dados_json.get("baixos",   [])
+            niveis_dast = {
+                "Crítico": ("🔴", "critico", _dedup(dados_json.get("criticos_dast", []))),
+                "Alto":    ("🟠", "alto",    _dedup(dados_json.get("altos_dast",    []))),
+                "Médio":   ("🟡", "medio",   _dedup(dados_json.get("medios_dast",   []))),
+                "Baixo":   ("🟢", "baixo",   _dedup(dados_json.get("baixos_dast",   []))),
+            }
 
-            if any([criticos, altos, medios, baixos]):
-                bloco_vulns += "### 📦 SCA (Trivy)\n\n"
+            niveis_sca = {
+                "Crítico": ("🔴", "critico", _dedup(dados_json.get("criticos", []))),
+                "Alto":    ("🟠", "alto",    _dedup(dados_json.get("altos",    []))),
+                "Médio":   ("🟡", "medio",   _dedup(dados_json.get("medios",   []))),
+                "Baixo":   ("🟢", "baixo",   _dedup(dados_json.get("baixos",   []))),
+            }
 
-                if criticos:
-                    bloco_vulns += "🔴 **Crítico**\n"
-                    for item in criticos:
-                        bloco_vulns += f"- {item}\n"
-                    bloco_vulns += "\n"
+            bloco_sast = _montar_bloco_nivel(niveis_sast) or "✅ Nenhuma vulnerabilidade encontrada pelo SAST.\n"
+            bloco_dast = _montar_bloco_nivel(niveis_dast) or "✅ Nenhuma vulnerabilidade encontrada pelo DAST.\n"
+            bloco_sca  = _montar_bloco_nivel(niveis_sca)  or "✅ Nenhuma vulnerabilidade de dependências encontrada.\n"
 
-                if altos:
-                    bloco_vulns += "🟠 **Alto**\n"
-                    for item in altos:
-                        bloco_vulns += f"- {item}\n"
-                    bloco_vulns += "\n"
-
-                if medios:
-                    bloco_vulns += "🟡 **Médio**\n"
-                    for item in medios:
-                        bloco_vulns += f"- {item}\n"
-                    bloco_vulns += "\n"
-
-                if baixos:
-                    bloco_vulns += "🟢 **Baixo**\n"
-                    for item in baixos:
-                        bloco_vulns += f"- {item}\n"
-                    bloco_vulns += "\n"
-
-                bloco_vulns += "---\n\n"
-
-            if not any([vuln_sast, vuln_dast, criticos, altos, medios, baixos]):
-                bloco_vulns += "✅ Nenhuma vulnerabilidade encontrada.\n\n"
-
-            texto_formatado = f"""---VULNS---
-{bloco_vulns.strip()}
+            texto_formatado = f"""---VULNS_SAST_DAST---
+{bloco_sast.strip()}
+---DIVISOR---
+{bloco_dast.strip()}
+---VULNS_SCA---
+{bloco_sca.strip()}
 ---RELATORIO---
 ### 📝 Análise de Postura de Segurança
 {dados_json.get('explicacao_executiva')}
@@ -170,11 +187,12 @@ Retorne SOMENTE JSON seguindo estritamente o schema fornecido.
 """
             return dados_json.get("criticidade"), dados_json.get("score"), texto_formatado
 
-        except exceptions.ResourceExhausted:
-            ultimo_erro = "Cota excedida."
-            continue
         except Exception as e:
-            ultimo_erro = str(e)
+            erro_str = str(e)
+            if "429" in erro_str or "RESOURCE_EXHAUSTED" in erro_str.upper():
+                ultimo_erro = f"Cota excedida na chave {CHAVES_API.index(chave)+1}."
+                continue
+            ultimo_erro = erro_str
             continue
 
     return "Erro", 0, f"Erro na análise da IA: {ultimo_erro}"
