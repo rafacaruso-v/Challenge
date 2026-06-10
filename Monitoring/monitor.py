@@ -44,7 +44,6 @@ def verificar_anomalia(ativo_nome, score_atual):
         conexao = sqlite3.connect("aspm.db", check_same_thread=False)
         cursor = conexao.cursor()
 
-        # Busca os dois últimos scores do ativo
         cursor.execute(
             """
             SELECT score FROM ativos
@@ -57,7 +56,7 @@ def verificar_anomalia(ativo_nome, score_atual):
         resultados = cursor.fetchall()
 
         if len(resultados) < 2:
-            return  # histórico insuficiente para comparar
+            return
 
         score_anterior = resultados[1][0]
         diferenca = score_atual - score_anterior
@@ -110,10 +109,8 @@ def rescan_automatico():
 
             atualizar_ativo(nome, url, crit, score_novo, analise_nova)
 
-            # Verifica anomalia após o re-scan
             verificar_anomalia(nome, score_novo)
 
-            # Verifica disponibilidade se for URL
             if e_url:
                 verificar_disponibilidade(nome, url)
 

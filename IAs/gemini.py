@@ -19,6 +19,7 @@ CHAVES_API = [
         os.environ.get("GEMINI_KEY_1", ""),
         os.environ.get("GEMINI_KEY_2", ""),
         os.environ.get("GEMINI_KEY_3", ""),
+        os.environ.get("GEMINI_KEY_4", ""),
     ]
     if chave.strip()
 ]
@@ -55,7 +56,7 @@ class AnaliseVulnerabilidadeSchema(BaseModel):
 def analisar_vulnerabilidades(tipo, url, ambiente, resultado_sast, resultado_dast, resultado_sca=""):
 
     if not CHAVES_API:
-        return "Erro", 0, "Erro na análise da IA: Nenhuma chave de API encontrada. Verifique o arquivo .env (GEMINI_KEY_1, GEMINI_KEY_2, GEMINI_KEY_3)."
+        return "Erro", 0, "Erro na análise da IA: Nenhuma chave de API encontrada. Verifique o arquivo .env (GEMINI_KEY_1, GEMINI_KEY_2, GEMINI_KEY_3, GEMINI_KEY_4)."
 
     e_url = url.startswith("http://") or url.startswith("https://")
 
@@ -133,10 +134,8 @@ Retorne SOMENTE JSON seguindo estritamente o schema fornecido.
 
             dados_json = json.loads(resposta.text)
 
-            # ── Remove duplicatas mantendo a ordem ──
             def _dedup(lst): return list(dict.fromkeys(lst))
 
-            # ── Monta bloco por nível com marcadores para o app.py ──
             def _montar_bloco_nivel(niveis: dict) -> str:
                 bloco = ""
                 for label, (emoji, cor_tag, items) in niveis.items():
