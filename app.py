@@ -318,9 +318,39 @@ if selecionado == "Dashboard":
             with col_graf1:
                 st.markdown("<p style='font-weight:700; font-size:20px;'>Distribuição de Riscos</p>", unsafe_allow_html=True)
                 cores_map = {'Crítica': '#ff4b4b', 'Alta': '#ff8c00', 'Média': '#ffd700', 'Baixa': '#00c853'}
-                fig_donut = px.pie(df, names='criticidade', hole=0.6, color='criticidade', color_discrete_map=cores_map)
-                fig_donut.update_layout(showlegend=True, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
-                                        margin=dict(t=10, b=10, l=10, r=10), font=dict(color="white"), height=300)
+
+                df_counts = df['criticidade'].value_counts().reset_index()
+                df_counts.columns = ['criticidade', 'count']
+                df_counts['label'] = df_counts.apply(lambda r: f"{r['criticidade']} ({r['count']})", axis=1)
+
+                fig_donut = px.pie(
+                    df_counts,
+                    names='label',
+                    values='count',
+                    hole=0.55,
+                    color='criticidade',
+                    color_discrete_map=cores_map
+                )
+                fig_donut.update_traces(
+                    textposition='inside',
+                    textinfo='percent',
+                    textfont=dict(color='white', size=13),
+                    hovertemplate='%{label}<extra></extra>'
+                )
+                fig_donut.update_layout(
+                    showlegend=True,
+                    legend=dict(
+                        orientation="v",
+                        x=1.05,
+                        y=0.5,
+                        font=dict(size=12, color="white")
+                    ),
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    margin=dict(t=10, b=10, l=10, r=50),
+                    font=dict(color="white"),
+                    height=300
+                )
                 st.plotly_chart(fig_donut, width='content')
 
             with col_graf2:
@@ -386,20 +416,23 @@ elif selecionado == "Análises":
                         st.error("❌ Erro ao conectar no OWASP ZAP.")
                     else:
                         crit, score, analise = analisar_vulnerabilidades(tipo, url, ambiente, res_sast, res_dast, res_sca)
-                        salvar_ativo(nome, tipo, url, ambiente, crit, score, analise)
-                        st.success("✅ Análise concluída!")
-                        st.metric("Risk Score", score)
 
-                        sast_dast_conteudo, sca_conteudo, relatorio_conteudo = _parse_blocos(analise)
+                        if crit == "Erro":
+                            st.error("❌ Erro na análise da IA. O ativo não foi salvo.")
+                        else:
+                            salvar_ativo(nome, tipo, url, ambiente, crit, score, analise)
+                            st.success("✅ Análise concluída!")
+                            st.metric("Risk Score", score)
 
-                        st.markdown("<br><h3>📋 Resultados Detalhados</h3>", unsafe_allow_html=True)
-                        _exibir_abas(tipo, sast_dast_conteudo, sca_conteudo)
+                            sast_dast_conteudo, sca_conteudo, relatorio_conteudo = _parse_blocos(analise)
 
-                        # ── Relatório da IA exibido logo abaixo das abas ──
-                        if relatorio_conteudo:
-                            st.markdown("<br>", unsafe_allow_html=True)
-                            st.markdown("---")
-                            st.markdown(relatorio_conteudo)
+                            st.markdown("<br><h3>📋 Resultados Detalhados</h3>", unsafe_allow_html=True)
+                            _exibir_abas(tipo, sast_dast_conteudo, sca_conteudo)
+
+                            if relatorio_conteudo:
+                                st.markdown("<br>", unsafe_allow_html=True)
+                                st.markdown("---")
+                                st.markdown(relatorio_conteudo)
 
                 except Exception as e:
                     st.error(f"Erro inesperado: {e}")

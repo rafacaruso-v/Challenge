@@ -1,7 +1,7 @@
 import requests
 import sqlite3
 from datetime import datetime
-from Database.db import salvar_alerta, listar_ativos_db, atualizar_ativo
+from Database.db import salvar_alerta, listar_ativos_db, atualizar_ativo  # type: ignore
 
 LIMIAR_ANOMALIA = 20 
 
@@ -10,7 +10,10 @@ LIMIAR_ANOMALIA = 20
 # =====================================
 def verificar_disponibilidade(ativo_nome, url):
     try:
-        resposta = requests.get(url, timeout=10)
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        }
+        resposta = requests.get(url, timeout=10, headers=headers)
         if resposta.status_code >= 400:
             salvar_alerta(
                 ativo_nome=ativo_nome,
@@ -79,7 +82,6 @@ def rescan_automatico():
     from Scanners.semgrep import rodar_semgrep
     from Scanners.trivy import rodar_trivy
     from IAs.gemini import analisar_vulnerabilidades
-    from Database.db import atualizar_ativo
 
     ativos = listar_ativos_db()
 
@@ -106,6 +108,10 @@ def rescan_automatico():
             crit, score_novo, analise_nova = analisar_vulnerabilidades(
                 tipo, url, ambiente, res_sast, res_dast, res_sca
             )
+
+            if crit == "Erro":
+                print(f"Análise falhou para {nome}, mantendo dados anteriores.")
+                continue
 
             atualizar_ativo(nome, url, crit, score_novo, analise_nova)
 
