@@ -1,0 +1,183 @@
+rules:
+
+  # ===========================================================================
+  # REGRA 1 — XSS Potencial real (filtra falsos positivos)
+  # Problema original: Semgrep flagava qualquer return com f-string como XSS,
+  # mesmo quando o Flask retorna text/plain (não renderizado pelo navegador).
+  # Solução: só dispara se o input do usuário for passado para render_template
+  # ou render_template_string — contextos onde HTML é de fato renderizado.
+  # ===========================================================================
+  - id: xss-flask-real
+    message: "XSS Real: input do usuário renderizado diretamente como HTML via template."
+    languages: [python]
+    severity: WARNING
+    patterns:
+      - pattern-either:
+          - pattern: return render_template_string($TEMPLATE, ...)
+          - pattern: render_template_string(f"...$X...", ...)
+      - pattern-not: render_template_string("...", **$SAFE_VARS)
+
+
+  # ===========================================================================
+  # REGRA 2 — Open Redirect real (filtra falsos positivos)
+  # Problema original: Semgrep flagava redirect() mesmo quando o destino
+  # é um valor fixo ou vem de uma whitelist validada.
+  # Solução: só dispara se o redirect vier diretamente de request.args,
+  # request.form ou request.values sem nenhuma validação intermediária.
+  # ===========================================================================
+  - id: open-redirect-real
+    message: "Open Redirect: destino do redirect vem diretamente do input do usuário sem validação."
+    languages: [python]
+    severity: WARNING
+    patterns:
+      - pattern-either:
+          - pattern: redirect(request.args.get(...))
+          - pattern: redirect(request.form.get(...))
+          - pattern: redirect(request.values.get(...))
+      - pattern-not: |
+          $DESTINO = request.args.get(...)
+          if $DESTINO.startswith("/"):
+              redirect($DESTINO)
+      - pattern-not: |
+          $DESTINO = request.args.get(...)
+          if $DESTINO in $WHITELIST:
+              redirect($DESTINO)
+
+
+  # ===========================================================================
+  # REGRA 3 — Command Injection real (filtra falsos positivos)
+  # Problema original: Semgrep flagava subprocess com shell=True mesmo quando
+  # o comando é fixo e não usa input do usuário.
+  # Solução: só dispara se shell=True estiver presente E o comando contiver
+  # uma variável que pode vir do usuário via request.
+  # ===========================================================================
+  - id: command-injection-real
+    message: "Command Injection: input do usuário usado em subprocess com shell=True."
+    languages: [python]
+    severity: ERROR
+    patterns:
+      - pattern: subprocess.run($CMD, shell=True, ...)
+      - pattern-not: subprocess.run("...", shell=True, ...)
+      - pattern-not: subprocess.run([...], shell=True, ...)
+
+
+  # ===========================================================================
+  # REGRA 4 — Hardcoded Secret real (filtra falsos positivos)
+  # Problema original: Semgrep flagava variáveis com nomes como "password"
+  # mesmo quando o valor é um placeholder, exemplo de documentação ou vazio.
+  # Solução: ignorar valores claramente não sensíveis como "example",
+  # "placeholder", "changeme", strings vazias ou comentários de exemplo.
+  # ===========================================================================
+  - id: hardcoded-secret-real
+    message: "Hardcoded Secret: credencial real encontrada diretamente no código-fonte."
+    languages: [python]
+    severity: WARNING
+    patterns:
+      - pattern-either:
+          - pattern: $KEY = "..."
+          - pattern: $PASSWORD = "..."
+          - pattern: $SECRET = "..."
+          - pattern: $TOKEN = "..."
+          - pattern: $API_KEY = "..."
+      - metavariable-regex:
+          metavariable: $KEY
+          regex: ".*(key|secret|password|token|api_key|passwd|pwd).*"
+      - pattern-not: $KEY = ""
+      - pattern-not: $KEY = "example"
+      - pattern-not: $KEY = "changeme"
+      - pattern-not: $KEY = "placeholder"
+      - pattern-not: $KEY = "your-secret-here"
+      - pattern-not: $KEY = "xxxx"
+
+
+  # ===========================================================================
+  # REGRA 5 — Pickle inseguro real (filtra falsos positivos)
+  # Problema original: Semgrep flagava pickle.loads() mesmo quando os dados
+  # vêm de fontes internas confiáveis (arquivos locais, não de requests).
+  # Solução: só dispara se os dados vierem diretamente de request (HTTP input).
+  # ===========================================================================
+  - id: pickle-inseguro-real
+    message: "Desserialização Insegura: pickle.loads() com dados vindos de input HTTP."
+    languages: [python]
+    severity: ERROR
+    patterns:
+      - pattern-either:
+          - pattern: pickle.loads(request.data)
+          - pattern: pickle.loads(request.get_data())
+          - pattern: pickle.loads(request.form.get(...))
+          - pattern: pickle.loads(request.args.get(...))
+
+
+  # ===========================================================================
+  # REGRA 6 — yaml.load() inseguro real (filtra falsos positivos)
+  # Problema original: Semgrep flagava yaml.load() mesmo quando já usa
+  # Loader=yaml.SafeLoader corretamente.
+  # Solução: só dispara se yaml.load() for chamado SEM o parâmetro Loader
+  # ou com Loader que não seja SafeLoader/BaseLoader.
+  # ===========================================================================
+  - id: yaml-load-inseguro-real
+    message: "yaml.load() sem SafeLoader: permite execução de código arbitrário via YAML."
+    languages: [python]
+    severity: WARNING
+    patterns:
+      - pattern: yaml.load($DATA)
+      - pattern-not: yaml.load($DATA, Loader=yaml.SafeLoader)
+      - pattern-not: yaml.load($DATA, Loader=yaml.BaseLoader)
+      - pattern-not: yaml.safe_load($DATA)
+
+
+  # ===========================================================================
+  # REGRA 7 — CSRF desprotegido via @csrf.exempt
+  # Problema: rotas marcadas com @csrf.exempt removem a proteção contra CSRF,
+  # permitindo que atacantes façam requisições forjadas em nome do usuário.
+  # Solução: detectar qualquer rota marcada com o decorator .exempt
+  # independente do nome do objeto CSRFProtect instanciado.
+  # ===========================================================================
+  - id: csrf-exempt-detectado
+    message: "CSRF Desprotegido: rota marcada com @csrf.exempt remove proteção contra CSRF."
+    languages: [python]
+    severity: WARNING
+    patterns:
+      - pattern: |
+          @$APP.exempt
+          def $FUNC(...):
+              ...
+
+
+# ===========================================================================
+  # REGRA 8 — Broken Access Control real (filtra falsos positivos)
+  # Problema: rotas Flask com métodos POST/DELETE que executam ações sensíveis
+  # (deletar, atualizar, transferir) sem nenhuma verificação de autenticação
+  # ou sessão antes de processar a requisição.
+  # Solução: dispara apenas se a função NÃO contiver nenhuma chamada a
+  # session.get, current_user, login_required ou função de verificação
+  # com nome contendo "auth"/"login"/"verificar" em qualquer lugar do corpo.
+  # ===========================================================================
+  - id: missing-auth-check-real
+    message: "Broken Access Control: rota sensível (POST/DELETE) sem nenhuma verificação de autenticação ou sessão antes de executar a ação."
+    languages: [python]
+    severity: ERROR
+    patterns:
+      - pattern-either:
+          - pattern: |
+              @$APP.route(..., methods=["POST"])
+              def $FUNC(...):
+                  ...
+          - pattern: |
+              @$APP.route(..., methods=["DELETE"])
+              def $FUNC(...):
+                  ...
+          - pattern: |
+              @$APP.route(..., methods=[..., "POST", ...])
+              def $FUNC(...):
+                  ...
+      - pattern-not-regex: '(?s).*session\.get\(.*'
+      - pattern-not-regex: '(?s).*session\[.*\].*'
+      - pattern-not-regex: '(?s).*current_user.*'
+      - pattern-not-regex: '(?s).*login_required.*'
+      - pattern-not-regex: '(?s).*@.*\.login_required.*'
+      - pattern-not-regex: '(?s).*verificar_login.*'
+      - pattern-not-regex: '(?s).*verificar_auth.*'
+      - pattern-not-regex: '(?s).*is_authenticated.*'
+      - pattern-not-regex: '(?s).*require_auth.*'
+      - pattern-not-regex: '(?s).*check_auth.*'

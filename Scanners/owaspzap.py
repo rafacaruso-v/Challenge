@@ -1,5 +1,7 @@
 import time
 import json
+import os
+import requests as req
 from zapv2 import ZAPv2
 
 def _normalizar_url(url: str) -> str:
@@ -34,11 +36,33 @@ def _agrupar_alertas(alertas: list) -> list:
 
     return resultado
 
+def _aguardar_zap(zap_url: str, tentativas: int = 8, intervalo: int = 3) -> bool:
+    """
+    Aguarda o ZAP iniciar antes de tentar conectar.
+    Retorna True se o ZAP estiver pronto, False se esgotou as tentativas.
+    """
+    for i in range(tentativas):
+        try:
+            req.get(zap_url, timeout=3)
+            print("ZAP está pronto!")
+            return True
+        except Exception:
+            print(f"Aguardando ZAP iniciar... tentativa {i + 1}/{tentativas}")
+            time.sleep(intervalo)
+    return False
+
 def rodar_zap(url):
     try:
         url = _normalizar_url(url)
 
-        zap_url = 'http://127.0.0.1:8090'
+        zap_host = os.environ.get("ZAP_HOST", "127.0.0.1")
+        zap_url  = f'http://{zap_host}:8090'
+
+        # Aguarda o ZAP iniciar (essencial no Docker)
+        if not _aguardar_zap(zap_url):
+            print("ZAP não respondeu após todas as tentativas.")
+            return "ERRO_PROXY_ZAP"
+
         zap = ZAPv2(apikey='', proxies={'http': zap_url, 'https': zap_url})
 
         print(f"Conectado ao ZAP. Versão: {zap.core.version}")

@@ -1,19 +1,19 @@
-import requests
+import requests as req
 import sqlite3
+import time
+import os
 from datetime import datetime
-from Database.db import salvar_alerta, listar_ativos_db, atualizar_ativo  # type: ignore
+from Database.db import salvar_alerta, listar_ativos_db, atualizar_ativo
 
-LIMIAR_ANOMALIA = 20 
+LIMIAR_ANOMALIA = 20
 
-# =====================================
-# MONITORAMENTO DE DISPONIBILIDADE
-# =====================================
+
 def verificar_disponibilidade(ativo_nome, url):
     try:
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         }
-        resposta = requests.get(url, timeout=10, headers=headers)
+        resposta = req.get(url, timeout=10, headers=headers)
         if resposta.status_code >= 400:
             salvar_alerta(
                 ativo_nome=ativo_nome,
@@ -22,14 +22,14 @@ def verificar_disponibilidade(ativo_nome, url):
             )
             return False
         return True
-    except requests.exceptions.ConnectionError:
+    except req.exceptions.ConnectionError:
         salvar_alerta(
             ativo_nome=ativo_nome,
             tipo="offline",
             mensagem=f"🔴 '{ativo_nome}' está inacessível (connection error) às {datetime.now().strftime('%d/%m/%Y %H:%M')}"
         )
         return False
-    except requests.exceptions.Timeout:
+    except req.exceptions.Timeout:
         salvar_alerta(
             ativo_nome=ativo_nome,
             tipo="offline",
@@ -37,11 +37,9 @@ def verificar_disponibilidade(ativo_nome, url):
         )
         return False
     except Exception:
-        return True 
+        return True
 
-# =====================================
-# DETECÇÃO DE ANOMALIAS
-# =====================================
+
 def verificar_anomalia(ativo_nome, score_atual):
     try:
         conexao = sqlite3.connect("aspm.db", check_same_thread=False)
@@ -74,14 +72,24 @@ def verificar_anomalia(ativo_nome, score_atual):
     except Exception as e:
         print(f"Erro ao verificar anomalia: {e}")
 
-# =====================================
-# RE-SCAN AUTOMÁTICO
-# =====================================
+def _aguardar_zap(zap_url: str, tentativas: int = 10, intervalo: int = 5) -> bool:
+    for i in range(tentativas):
+        try:
+            req.get(zap_url, timeout=3)
+            print("ZAP está pronto!")
+            return True
+        except Exception:
+            print(f"Aguardando ZAP iniciar... tentativa {i + 1}/{tentativas}")
+            time.sleep(intervalo)
+    return False
+
+
 def rescan_automatico():
     from Scanners.owaspzap import rodar_zap
     from Scanners.semgrep import rodar_semgrep
     from Scanners.trivy import rodar_trivy
     from IAs.gemini import analisar_vulnerabilidades
+    from Database.db import registrar_historico
 
     ativos = listar_ativos_db()
 
@@ -130,3 +138,6 @@ def rescan_automatico():
 
         except Exception as e:
             print(f"Erro no re-scan de {nome}: {e}")
+
+    registrar_historico()
+    print("Histórico atualizado.")

@@ -71,6 +71,5 @@ def rodar_trivy(caminho_ou_url):
         return f"Erro: {str(e)}"
 
     finally:
-        # Remove o repositório clonado
         if clonado and os.path.exists(caminho_local):
             shutil.rmtree(caminho_local)

@@ -8,13 +8,24 @@ def rodar_semgrep(caminho):
         return "ERRO: Caminho não encontrado localmente."
 
     try:
-        
         resultado = subprocess.run(
-            ["semgrep", "--config=auto", "--json", "--quiet", caminho],
-            capture_output=True,
-            text=True,
-            timeout=180 
-        )
+    [
+        "semgrep",
+        "--config", "Regras/regras_semgrep.yaml",
+        "--config=auto",
+        "--config=p/secrets",     
+        "--config=p/flask",          
+        "--config=p/python",
+        "--config=p/owasp-top-ten",
+        "--config=p/java", 
+        "--config=p/javascript",
+        "--config=p/cwe-top-25",
+        "--json", "--quiet", caminho
+    ],
+    capture_output=True,
+    text=True,
+    timeout=180
+)
 
         if resultado.stdout:
             dados = json.loads(resultado.stdout)

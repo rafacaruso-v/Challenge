@@ -41,7 +41,16 @@ def criar_tabela():
         """
     )
 
-    # Adiciona coluna ultima_analise se banco já existir sem ela
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS historico (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            score_medio REAL,
+            data TEXT
+        )
+        """
+    )
+
     try:
         cursor.execute("ALTER TABLE ativos ADD COLUMN ultima_analise TEXT")
     except Exception:
@@ -63,6 +72,7 @@ def salvar_ativo(nome, tipo, url, ambiente, criticidade, score, analise):
          datetime.now().strftime("%d/%m/%Y %H:%M"))
     )
     conexao.commit()
+    # registrar_historico() removido — só o scheduler registra pontos no histórico
 
 def atualizar_ativo(nome, url, criticidade, score, analise):
     """Atualiza o ativo existente ao invés de criar duplicata."""
@@ -79,6 +89,7 @@ def atualizar_ativo(nome, url, criticidade, score, analise):
          nome, url)
     )
     conexao.commit()
+    # registrar_historico() removido — só o scheduler registra pontos no histórico
 
 def listar_ativos_db():
     conexao = conectar()
@@ -86,6 +97,85 @@ def listar_ativos_db():
     cursor.execute("SELECT * FROM ativos")
     ativos = cursor.fetchall()
     return ativos
+
+def deletar_ativo(ativo_id):
+    """
+    Remove um ativo pelo ID e limpa quaisquer alertas
+    associados a ele para não deixar registros órfãos.
+    """
+    conexao = conectar()
+    cursor = conexao.cursor()
+
+    # Busca o nome do ativo antes de deletar, para limpar alertas vinculados
+    cursor.execute("SELECT nome FROM ativos WHERE id = ?", (ativo_id,))
+    resultado = cursor.fetchone()
+
+    cursor.execute("DELETE FROM ativos WHERE id = ?", (ativo_id,))
+
+    if resultado:
+        nome_ativo = resultado[0]
+        cursor.execute("DELETE FROM alertas WHERE ativo_nome = ?", (nome_ativo,))
+
+    conexao.commit()
+
+# =====================================
+# FUNÇÕES DE HISTÓRICO
+# =====================================
+
+def registrar_historico():
+    """
+    Calcula o score médio de todos os ativos (exceto 'Erro')
+    e salva um ponto no histórico com timestamp atual.
+    Deve ser chamada APENAS pelo scheduler após o rescan completo.
+    """
+    conexao = conectar()
+    cursor = conexao.cursor()
+
+    cursor.execute(
+        "SELECT score FROM ativos WHERE criticidade != 'Erro'"
+    )
+    scores = [r[0] for r in cursor.fetchall()]
+
+    if not scores:
+        return
+
+    score_medio = sum(scores) / len(scores)
+
+    cursor.execute(
+        """
+        INSERT INTO historico (score_medio, data)
+        VALUES (?, ?)
+        """,
+        (score_medio, datetime.now().strftime("%d/%m/%Y %H:%M:%S"))
+    )
+    conexao.commit()
+
+def listar_historico(minutos=60):
+    """
+    Retorna os pontos do histórico dos últimos N minutos.
+    """
+    conexao = conectar()
+    cursor = conexao.cursor()
+    cursor.execute(
+        """
+        SELECT score_medio, data FROM historico
+        ORDER BY id DESC
+        LIMIT 50
+        """
+    )
+    resultados = cursor.fetchall()
+
+    if not resultados:
+        return []
+
+    agora = datetime.now()
+    filtrados = []
+    for score_medio, data_str in resultados:
+        data_ponto = datetime.strptime(data_str, "%d/%m/%Y %H:%M:%S")
+        if (agora - data_ponto).total_seconds() <= minutos * 60:
+            filtrados.append((score_medio, data_str))
+
+    return list(reversed(filtrados))
 
 # =====================================
 # FUNÇÕES DE ALERTAS

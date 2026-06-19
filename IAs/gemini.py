@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 import json
 import re
 import os
+from collections import defaultdict
 from dotenv import load_dotenv
 
 # =====================================
@@ -53,6 +54,62 @@ class AnaliseVulnerabilidadeSchema(BaseModel):
     recomendacoes: str = Field(description="Passos para correção ou melhorias (Plano de Ação)")
 
 
+def deduplicate_sast(resultado_sast_raw: str) -> str:
+    try:
+        findings = json.loads(resultado_sast_raw)
+        if not isinstance(findings, list):
+            return resultado_sast_raw
+    except (json.JSONDecodeError, TypeError):
+        return resultado_sast_raw
+
+    grupos_iniciais = defaultdict(list)
+
+    for f in findings:
+        check_id = f.get("check_id", "desconhecido")
+        caminho  = f.get("path", "desconhecido")
+        
+        linha = "?"
+        if isinstance(f.get("start"), dict) and "line" in f.get("start"):
+            linha = f["start"]["line"]
+        elif "line" in f:
+            linha = f["line"]
+        elif isinstance(f.get("location"), dict):
+            linha = f["location"].get("start_line", f["location"].get("line", "?"))
+            
+        chave = (check_id, caminho)
+        grupos_iniciais[chave].append(str(linha))
+
+    grupos_finais = defaultdict(list)
+    for (check_id, caminho), linhas in grupos_iniciais.items():
+        linhas_validas = [l for l in linhas if l != "?"]
+        linhas_unicas = tuple(sorted(set(linhas_validas), key=lambda x: int(x) if x.isdigit() else str(x)))
+        grupos_finais[(caminho, linhas_unicas)].append(check_id)
+
+    resultado = []
+    for (caminho, linhas_unicas), checks in grupos_finais.items():
+        if not linhas_unicas:
+            linhas_str = "linha desconhecida"
+        elif len(linhas_unicas) == 1:
+            linhas_str = f"linha {linhas_unicas[0]}"
+        elif len(linhas_unicas) == 2:
+            linhas_str = f"linhas {linhas_unicas[0]} e {linhas_unicas[1]}"
+        else:
+            linhas_str = "linhas " + ", ".join(linhas_unicas[:-1]) + f" e {linhas_unicas[-1]}"
+
+        if len(checks) == 1:
+            nome_vuln = checks[0]
+        else:
+            nome_vuln = "Múltiplas violações (" + ", ".join(checks) + ")"
+
+        resultado.append({
+            "check_id": checks[0],
+            "path": caminho,
+            "message_completa": f"{nome_vuln} detectado(s) em {os.path.basename(caminho)}, {linhas_str}."
+        })
+
+    return json.dumps(resultado, ensure_ascii=False)
+
+
 def analisar_vulnerabilidades(tipo, url, ambiente, resultado_sast, resultado_dast, resultado_sca=""):
 
     if not CHAVES_API:
@@ -64,14 +121,28 @@ def analisar_vulnerabilidades(tipo, url, ambiente, resultado_sast, resultado_das
         sast_final = "IGNORADO (O ativo é uma URL/Runtime, análise de código não aplicável)"
         sca_final  = "IGNORADO (O ativo é uma URL/Runtime, análise de dependências não aplicável)"
     else:
-        sast_final = resultado_sast if (resultado_sast and resultado_sast != "[]") else "LIMPO"
-        sca_final  = resultado_sca  if (resultado_sca  and resultado_sca  != "[]") else "LIMPO"
+        sast_dedup = deduplicate_sast(resultado_sast) if (resultado_sast and resultado_sast != "[]") else "[]"
+        sast_final = sast_dedup if (sast_dedup and sast_dedup != "[]") else "LIMPO"
+        sca_final  = resultado_sca if (resultado_sca and resultado_sca != "[]") else "LIMPO"
 
     dast_final = resultado_dast if (resultado_dast and resultado_dast != "[]") else "LIMPO"
 
     prompt = f"""
 Você é um Especialista Sênior em AppSec. Analise os resultados para o ativo: {tipo}.
 URL/Caminho: {url}
+
+==================================================
+PRÉ-PROCESSAMENTO OBRIGATÓRIO
+==================================================
+Antes de classificar qualquer finding, siga estas etapas:
+
+1. TRATAMENTO DE NULOS: Se qualquer campo vier vazio, nulo ou ausente, trate-o
+   automaticamente como 'IGNORADO'. Nunca invente ou infira dados de campos ausentes.
+
+2. DEDUPLICAÇÃO LITERAL (SAST): Os findings já foram deduplicados por arquivo + linha
+   antes de chegar aqui. Cada item representa um finding técnico do Semgrep — mas múltiplos
+   itens ainda podem descrever a MESMA vulnerabilidade real (veja a regra de consolidação
+   semântica abaixo antes de classificar).
 
 ==================================================
 RESULTADOS DOS SCANNERS
@@ -81,37 +152,133 @@ SCA  (Dependências - Trivy): {sca_final}
 DAST (Dinâmico - ZAP):       {dast_final}
 
 ==================================================
-MATRIZ DE CRITICIDADE E SCORE (REGRA DE OURO)
+MATRIZ DE CRITICIDADE E SCORE (PADRÃO CVSS v3.1)
 ==================================================
-Você deve definir o campo 'criticidade' e o 'score' (0 a 100) com base no achado mais grave encontrado, seguindo esta régua:
+Classifique cada vulnerabilidade individualmente usando o padrão CVSS v3.1 como referência,
+e defina a criticidade GERAL do ativo com base na vulnerabilidade de maior severidade encontrada.
 
-1. 🔴 Crítica (Score 90-100): Se houver falhas como SQL Injection (SQLi), Execução Remota de Código (RCE), Quebra de Controle de Acesso (Broken Access Control), vazamento exposto de credenciais em runtime, ou Modo Debug Ativado/Exposto em ambiente de PRODUÇÃO. Para SCA, somente eleve para Crítica se o CVE tiver severidade CRITICAL no Trivy E possuir exploit público confirmado com impacto de RCE ou controle total do sistema.
-2. 🟠 Alta (Score 70-89): Se houver Falhas de Autenticação (senhas fracas/criptografia falha), SSRF (Server-Side Request Forgery), Cross-Site Scripting (XSS), ou CVEs com severidade CRITICAL/HIGH no Trivy com exploit público conhecido mas sem RCE confirmado.
-3. 🟡 Média (Score 40-69): Se houver Content Security Policy (CSP) ausente, Configurações Incorretas (Security Misconfiguration como Modo Debug ativo em Homologação/Desenvolvimento), uso de Componentes/Bibliotecas Desatualizadas com CVEs de severidade MEDIUM no Trivy ou CVEs HIGH sem exploit público confirmado. DoS, vazamento de informações e misconfigurations se enquadram aqui.
-4. 🟢 Baixa (Score 1-39): Se houver APENAS Divulgação de Informações passivas (vazamento de versão de servidor/tecnologias), Ausência de Cabeçalhos de Segurança puramente de configuração (HTTP Security Headers como HSTS, Clickjacking, X-Content-Type), Gerenciamento de Sessão Fraco sem exploração ativa, CVEs de severidade LOW no Trivy, ou comportamentos inesperados sem impacto direto de segurança.
-5. ⚪ Limpo (Score 0): Caso não existam vulnerabilidades reais reportadas ou todos os scanners aplicáveis estejam "LIMPO". Defina a 'criticidade' como "Baixa".
+Faixas de classificação:
+- CVSS 9.0 - 10.0 → 🔴 Crítico  (Score do ativo: 90-100)
+- CVSS 7.0 - 8.9  → 🟠 Alto     (Score do ativo: 70-89)
+- CVSS 4.0 - 6.9  → 🟡 Médio    (Score do ativo: 40-69)
+- CVSS 0.1 - 3.9  → 🟢 Baixo    (Score do ativo: 1-39)
+- Sem achados     → ⚪ Limpo     (Score do ativo: 0, criticidade: "Baixa")
+
+Exemplos de referência CVSS para guiar sua classificação:
+CRÍTICO (9.0+): SQL Injection com acesso direto ao banco, RCE (Execução Remota de Código),
+  Desserialização Insegura com RCE confirmado (pickle, yaml.load), Broken Access Control total,
+  credenciais expostas em runtime, Debug Mode em PRODUÇÃO,
+  XSS Stored/Persistent (persiste no banco e afeta todos os usuários).
+
+ALTO (7.0-8.9): XSS Reflected (requer link malicioso, afeta um usuário por vez),
+  XSS DOM-based (executado no cliente), SSRF, Autenticação Quebrada, Hardcoded Credentials
+  em código-fonte, Injeção de Comandos sem shell direto, CVEs CRITICAL/HIGH com exploit público,
+  SSTI com RCE confirmado ou identificado em ambiente de Produção.
+
+MÉDIO (4.0-6.9): XSS Self-XSS (afeta apenas o próprio usuário, sem vetor externo real),
+  Open Redirect, Debug Mode em Homologação/Desenvolvimento, CSRF,
+  assert usado para controle de acesso, ReDoS, yaml.load sem RCE confirmado,
+  exposição de caminhos internos, SHA256 sem salt, CVEs MEDIUM sem exploit público,
+  SSTI sem RCE confirmado ou identificado em ambiente de Desenvolvimento/Homologação.
+
+BAIXO (0.1-3.9): MD5/SHA1 em checksums não críticos, Cookie sem flags (httponly/secure/samesite),
+  random() não criptográfico, divulgação de versão de servidor, ausência ou má configuração
+  de security headers, incluindo CSP com diretivas inseguras (unsafe-inline, unsafe-eval,
+  sem fallback), HSTS não configurado e X-Frame-Options ausente.
+
+REGRA XSS: Classifique XSS pelo tipo antes de qualquer outra análise.
+  Stored → Crítico. Reflected ou DOM-based → Alto. Self-XSS → Médio.
+  Se o tipo não for identificável pelo SAST, classifique como Alto por precaução.
+
+REGRA SSTI: O SSTI deve ser classificado como Médio por padrão. Eleve para Alto SOMENTE se
+  houver confirmação de RCE ou se o ambiente for Produção. Nunca eleve SSTI para Crítico
+  apenas por múltiplos findings do Semgrep apontando para o mesmo bloco de código.
+
+REGRA DE CONSOLIDAÇÃO SEMÂNTICA (aplica-se a QUALQUER tipo de vulnerabilidade):
+  Diferentes rulesets do Semgrep podem nomear a MESMA falha de formas diferentes — por
+  exemplo, um ruleset genérico descreve "uso de query SQL bruta" enquanto outro mais
+  específico descreve "injeção de SQL via string contaminada" para o EXATO mesmo trecho
+  de código. Antes de classificar, verifique se dois ou mais findings no mesmo arquivo,
+  em linhas iguais ou muito próximas (até 3 linhas de distância), apontam para a mesma
+  causa raiz — ou seja, a mesma operação ou chamada de função sendo descrita por ângulos
+  diferentes (ex: um finding cita a função insegura usada, outro cita o tipo de ataque
+  resultante; um cita a falta de validação, outro cita a consequência dessa falta).
+  Quando isso ocorrer:
+    a) Trate-os como UM ÚNICO finding lógico, não como vulnerabilidades separadas.
+    b) Use o nome do finding que descreve a causa raiz de forma mais técnica e específica
+       (geralmente o que nomeia o tipo de ataque, não o padrão de código genérico).
+    c) Classifique pela severidade MAIS ALTA entre os candidatos.
+    d) NUNCA reporte a mesma causa raiz duas vezes em campos de severidade diferentes
+       (ex: uma vez em criticos_sast e outra em altos_sast).
+  Esta regra tem prioridade sobre a listagem item a item — é preferível um relatório com
+  menos itens, porém semanticamente corretos, do que um relatório com itens duplicados
+  sob nomes distintos.
 
 ==================================================
 REGRA DE CÁLCULO DE CRITICIDADE E SCORE (CONDIÇÕES)
 ==================================================
-1. Teto Máximo (Highest Watermark): O score e a criticidade GERAL do ativo são definidos pela vulnerabilidade de maior severidade encontrada.
-2. Diferença entre "Cabeçalhos Ausentes" e "Falhas Ativas": O rebaixamento para categoria Baixa SÓ deve ser aplicado se os únicos achados do relatório forem cabeçalhos de proteção ausentes (ex: falta de CSP, falta de HSTS, falta de X-Frame-Options). Se houver QUALQUER falha de comportamento do servidor, exposição de páginas de erro internas, caminhos administrativos ou Modo Debug ativo, o ativo DEVE ser mantido no mínimo como Média.
-3. Fator Ambiente: Avalie o contexto informado no prompt. Se uma falha de configuração perigosa (como Modo Debug) for encontrada em ambiente de "Produção", mude o teto da falha para Crítica. Se for em "Desenvolvimento" ou "Homologação", mantenha como Média.
+1. Teto Máximo (Highest Watermark): O score e a criticidade GERAL do ativo são definidos pela
+   vulnerabilidade de maior severidade encontrada entre todos os scanners aplicáveis.
+   Exemplo: SAST Médio + SCA Alto → Score final = Alto (70-89).
+
+2. Fator Ambiente: Se uma falha de configuração perigosa (como Modo Debug) for encontrada em
+   ambiente de "Produção", eleve para Crítico. Se for em "Desenvolvimento" ou "Homologação",
+   mantenha como Médio.
+
+3. SCA — severidade pelo CVE real: Para CVEs do Trivy, use sempre a severidade oficial do CVE
+   (CRITICAL, HIGH, MEDIUM, LOW), nunca infira pelo nome do ataque descrito no CVE.
 
 ==================================================
 REGRAS DE NEGÓCIO
 ==================================================
-1. Se SAST estiver como 'IGNORADO', todos os campos criticos_sast, altos_sast, medios_sast, baixos_sast devem ser listas vazias.
-2. Se DAST estiver como 'IGNORADO', todos os campos criticos_dast, altos_dast, medios_dast, baixos_dast devem ser listas vazias.
-3. Somente indique sistema seguro (Score 0) se TODOS os scanners aplicáveis retornarem 'LIMPO' ou 'IGNORADO'.
-4. SQL Injection e XSS Crítico = Score 90-100, SOMENTE se reportados pelo SAST. Nunca infira essas falhas a partir de resultados do SCA.
-5. SCA detecta APENAS CVEs em bibliotecas/dependências. Mesmo que o nome do CVE contenha termos como "SQL Injection", "XSS" ou "RCE", ele deve ser classificado pela severidade real do CVE no Trivy (CRITICAL, HIGH, MEDIUM, LOW), nunca elevado para Score 90-100 por inferência do nome do ataque.
-6. CVEs com severidade CRITICAL ou HIGH no SCA com exploit público confirmado = Alta (70-89). Somente eleve para Crítica (90-100) se o CVE permitir RCE ou controle total do sistema com exploit público ativo.
-7. CVEs com severidade MEDIUM no SCA sem exploit público = mínimo Média (40-69).
-8. Para o SCA: classifique cada CVE nos campos 'criticos', 'altos', 'medios' ou 'baixos' de acordo com sua severidade INDIVIDUAL. Cada campo é uma lista onde cada item segue o formato: 'NomeBiblioteca: tipo do problema (CVE-XXXX, CVE-YYYY)'. Agrupe CVEs da mesma biblioteca e mesmo tipo em um único item da lista.
-9. Para o SAST: classifique cada vulnerabilidade nos campos criticos_sast, altos_sast, medios_sast ou baixos_sast de acordo com sua severidade. Formato: 'TipoVuln: descrição breve do problema e arquivo/linha afetada'.
-10. Para o DAST: classifique cada vulnerabilidade nos campos criticos_dast, altos_dast, medios_dast ou baixos_dast de acordo com sua severidade. Formato: 'TipoVuln: descrição breve do problema e endpoint afetado'.
-11. PROIBIDO classificar tudo como Crítico. Se o score geral é 95 mas um CVE causa apenas DoS, ele pertence ao campo 'medios', não 'criticos'.
+1. Se SAST estiver como 'IGNORADO', todos os campos criticos_sast, altos_sast, medios_sast,
+   baixos_sast devem ser listas vazias.
+
+2. Se DAST estiver como 'IGNORADO', todos os campos criticos_dast, altos_dast, medios_dast,
+   baixos_dast devem ser listas vazias.
+
+3. Somente indique sistema seguro (Score 0) se TODOS os scanners aplicáveis retornarem
+   'LIMPO' ou 'IGNORADO'.
+
+4. SQL Injection e XSS Crítico = Score 90-100, SOMENTE se reportados pelo SAST. Nunca infira
+   essas falhas a partir de resultados do SCA.
+
+5. SCA detecta APENAS CVEs em bibliotecas/dependências. Mesmo que o nome do CVE contenha
+   termos como "SQL Injection", "XSS" ou "RCE", ele deve ser classificado pela severidade
+   real do CVE no Trivy (CRITICAL, HIGH, MEDIUM, LOW), nunca elevado para Score 90-100
+   por inferência do nome do ataque.
+
+6. CVEs com severidade CRITICAL ou HIGH no SCA com exploit público confirmado = Alto (70-89).
+   Eleve para Crítico (90-100) SOMENTE se o CVE permitir execução remota de código no servidor
+   sem autenticação E houver exploit público ativo e confirmado. Ambas as condições são
+   obrigatórias para elevação.
+
+7. CVEs com severidade MEDIUM no SCA sem exploit público = mínimo Médio (40-69).
+
+8. Para o SCA: classifique cada CVE nos campos 'criticos', 'altos', 'medios' ou 'baixos' de
+   acordo com sua severidade INDIVIDUAL. Cada campo é uma lista onde cada item segue o formato:
+   'NomeBiblioteca: tipo do problema (CVE-XXXX, CVE-YYYY)'. Agrupe CVEs da mesma biblioteca
+   e mesmo tipo em um único item da lista.
+
+9. Para o SAST: classifique cada vulnerabilidade nos campos criticos_sast, altos_sast,
+   medios_sast ou baixos_sast de acordo com sua severidade.
+   AGRUPAMENTO OBRIGATÓRIO: Se a lista de findings contiver problemas da mesma família,
+   categoria, ou mesma causa raiz (ver REGRA DE CONSOLIDAÇÃO SEMÂNTICA acima) no MESMO
+   arquivo, você DEVE consolidá-los em um único item, combinando todos os números de
+   linhas afetadas.
+   Formato (máximo 25 palavras por item): 'TipoVuln: descrição breve consolidada do problema e arquivo/linhas afetadas'.
+   OBRIGATÓRIO: escreva SEMPRE em português.
+
+10. Para o DAST: classifique cada vulnerabilidade nos campos criticos_dast, altos_dast,
+    medios_dast ou baixos_dast de acordo com sua severidade. Formato (máximo 20 palavras por item):
+    'NomeVuln: explicação breve do problema em português. Endpoint: /caminho/da/pagina'.
+    OBRIGATÓRIO: escreva SEMPRE em português. NUNCA inclua URLs completas, parâmetros de scanner,
+    payloads codificados ou query strings longas — use apenas o caminho relativo do endpoint
+    (ex: /search, /login, /Register.asp).
+
+11. PROIBIDO classificar tudo como Crítico. Avalie cada finding individualmente pelo seu impacto
+    real. Exemplo: um CVE que causa apenas DoS pertence ao campo 'medios', nunca a 'criticos',
+    mesmo que o score geral do ativo seja 95.
 
 CONTEXTO: Ambiente de {ambiente}.
 Retorne SOMENTE JSON seguindo estritamente o schema fornecido.

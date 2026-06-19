@@ -28,3 +28,7 @@ Para subir tudo no repositório do GitHub, use os seguintes comandos:
 git add .
 git commit -m "blablabla" (dentro das aspas voce coloca uma mensagem dizendo as mudanças que fez.)
 git push origin main
+
+-----------------------------------------------------------------------------------------------------
+
+No final do projeto, vamos poder subir o docker.

@@ -13,7 +13,9 @@ from Database.db import (
     salvar_ativo,
     listar_ativos_db,
     listar_alertas_ativos,
-    resolver_alerta
+    resolver_alerta,
+    listar_historico,
+    deletar_ativo
 )
 from Monitoring.scheduler import iniciar_scheduler
 
@@ -282,6 +284,9 @@ if selecionado == "Dashboard":
         ])
         df = df[df['criticidade'] != 'Erro']
 
+        # Normaliza "Alto" -> "Alta" para consistência
+        df['criticidade'] = df['criticidade'].replace('Alto', 'Alta')
+
         if df.empty:
             st.info("Nenhum ativo analisado ainda. Vá para a aba 'Análises' para começar.")
         else:
@@ -308,12 +313,12 @@ if selecionado == "Dashboard":
             col1, col2, col3, col4, col5 = st.columns(5)
             with col1: card_kpi("Total de Ativos", total,    "#7c3aed", "📂", "Monitorados")
             with col2: card_kpi("Risco Crítico",   criticos, "#ff4b4b", "🛡️", f"{(criticos/total*100):.1f}%" if total > 0 else "0%")
-            with col3: card_kpi("Risco Alto",      altos,    "#ff8c00", "⚠️", f"{(altos/total*100):.1f}%"    if total > 0 else "0%")
+            with col3: card_kpi("Risco Alto",       altos,    "#ff8c00", "⚠️", f"{(altos/total*100):.1f}%"    if total > 0 else "0%")
             with col4: card_kpi("Risco Médio",     medios,   "#ffd700", "🟡", f"{(medios/total*100):.1f}%"   if total > 0 else "0%")
             with col5: card_kpi("Risco Baixo",     baixos,   "#00c853", "✅", f"{(baixos/total*100):.1f}%"   if total > 0 else "0%")
 
             st.markdown("<br>", unsafe_allow_html=True)
-            col_graf1, col_graf2 = st.columns([1, 2])
+            col_graf1, col_graf2, col_graf3 = st.columns([1, 1, 1])
 
             with col_graf1:
                 st.markdown("<p style='font-weight:700; font-size:20px;'>Distribuição de Riscos</p>", unsafe_allow_html=True)
@@ -324,42 +329,59 @@ if selecionado == "Dashboard":
                 df_counts['label'] = df_counts.apply(lambda r: f"{r['criticidade']} ({r['count']})", axis=1)
 
                 fig_donut = px.pie(
-                    df_counts,
-                    names='label',
-                    values='count',
-                    hole=0.55,
-                    color='criticidade',
-                    color_discrete_map=cores_map
+                    df_counts, names='label', values='count',
+                    hole=0.55, color='criticidade', color_discrete_map=cores_map
                 )
                 fig_donut.update_traces(
-                    textposition='inside',
-                    textinfo='percent',
+                    textposition='inside', textinfo='percent',
                     textfont=dict(color='white', size=13),
                     hovertemplate='%{label}<extra></extra>'
                 )
                 fig_donut.update_layout(
                     showlegend=True,
-                    legend=dict(
-                        orientation="v",
-                        x=1.05,
-                        y=0.5,
-                        font=dict(size=12, color="white")
-                    ),
-                    paper_bgcolor='rgba(0,0,0,0)',
-                    plot_bgcolor='rgba(0,0,0,0)',
+                    legend=dict(orientation="v", x=1.05, y=0.5, font=dict(size=11, color="white")),
+                    paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
                     margin=dict(t=10, b=10, l=10, r=50),
-                    font=dict(color="white"),
-                    height=300
+                    font=dict(color="white"), height=300
                 )
                 st.plotly_chart(fig_donut, width='content')
 
             with col_graf2:
-                st.markdown("<p style='font-weight:700; font-size:20px;'>Risco por Ambiente (Média de Score)</p>", unsafe_allow_html=True)
-                df_env = df.groupby('ambiente')['score'].mean().round(1).reset_index()
+                st.markdown("<p style='font-weight:700; font-size:20px;'>Evolução de Risco (Últimas 24h)</p>", unsafe_allow_html=True)
+
+                historico = listar_historico(minutos=1440)
+
+                if historico:
+                    df_hist = pd.DataFrame(historico, columns=['score_medio', 'data'])
+                    df_hist['hora'] = pd.to_datetime(df_hist['data'], format="%d/%m/%Y %H:%M:%S").dt.strftime("%H:%M:%S")
+                    fig_line = px.line(df_hist, x='hora', y='score_medio', markers=True)
+                else:
+                    fig_line = px.line()
+
+                fig_line.update_traces(line_color='#7c3aed', line_width=3, marker=dict(size=8, color='#a855f7'))
+                fig_line.update_layout(
+                    paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                    font=dict(color="white"), height=300,
+                    xaxis=dict(showgrid=False, title=""),
+                    yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.05)', title="Risk Score Médio", range=[0, 100]),
+                    margin=dict(t=10, b=10, l=10, r=10),
+                    showlegend=False
+                )
+                st.plotly_chart(fig_line, width='content')
+
+            with col_graf3:
+                st.markdown("<p style='font-weight:700; font-size:20px;'>Risco por Ambiente</p>", unsafe_allow_html=True)
+                df_env = df.groupby('ambiente')['score'].mean().round(0).reset_index()
+
                 fig_bar = px.bar(df_env, x='score', y='ambiente', orientation='h', text='score')
-                fig_bar.update_traces(marker_color='#3b82f6', textposition='inside')
-                fig_bar.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color="white"),
-                                      xaxis=dict(showgrid=False), yaxis=dict(showgrid=False), height=300, margin=dict(r=20))
+                fig_bar.update_traces(marker_color='#3b82f6', textposition='outside', texttemplate='%{text}%')
+                fig_bar.update_layout(
+                    paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+                    font=dict(color="white"),
+                    xaxis=dict(showgrid=False, range=[0, 105], ticksuffix="%", tickvals=[0, 25, 50, 75, 100], title=""),
+                    yaxis=dict(showgrid=False, title=""),
+                    height=300, margin=dict(r=40, l=10, t=10, b=10)
+                )
                 st.plotly_chart(fig_bar, width='content')
 
             st.markdown("<p style='font-weight:700; font-size:24px; margin-top:30px;'>Ativos Recentes</p>", unsafe_allow_html=True)
@@ -395,7 +417,7 @@ if selecionado == "Dashboard":
         st.info("Nenhum ativo analisado ainda. Vá para a aba 'Análises' para começar.")
 
 elif selecionado == "Análises":
-    st.markdown("<div style='font-size:32px; font-weight:700; margin-bottom:20px; color:var(--text-color);'>Nova Análise de Ativo</div>", unsafe_allow_html=True)
+    st.markdown("<div style='font-size:32px; font-weight:700; margin-bottom:20px; color:var(--text-color);'>Análise de Ativo</div>", unsafe_allow_html=True)
 
     nome     = st.text_input("Nome do ativo")
     tipo     = st.selectbox("Tipo do ativo", ["API", "Aplicação", "Repositório"])
@@ -414,37 +436,93 @@ elif selecionado == "Análises":
 
                     if res_dast == "ERRO_PROXY_ZAP":
                         st.error("❌ Erro ao conectar no OWASP ZAP.")
+                        st.stop()
+
+                    if isinstance(res_sast, str) and res_sast.startswith("ERRO:"):
+                        st.error(f"❌ Erro no Semgrep: {res_sast.replace('ERRO:', '').strip()}")
+                        st.stop()
+
+                    if isinstance(res_sca, str) and res_sca.startswith("ERRO:"):
+                        st.error(f"❌ Erro no Trivy: {res_sca.replace('ERRO:', '').strip()}")
+                        st.stop()
+
+                    crit, score, analise = analisar_vulnerabilidades(tipo, url, ambiente, res_sast, res_dast, res_sca)
+
+                    if crit == "Erro":
+                        st.error("❌ Erro na análise da IA. O ativo não foi salvo.")
                     else:
-                        crit, score, analise = analisar_vulnerabilidades(tipo, url, ambiente, res_sast, res_dast, res_sca)
+                        salvar_ativo(nome, tipo, url, ambiente, crit, score, analise)
+                        st.success("✅ Análise concluída!")
+                        st.metric("Risk Score", score)
 
-                        if crit == "Erro":
-                            st.error("❌ Erro na análise da IA. O ativo não foi salvo.")
-                        else:
-                            salvar_ativo(nome, tipo, url, ambiente, crit, score, analise)
-                            st.success("✅ Análise concluída!")
-                            st.metric("Risk Score", score)
+                        sast_dast_conteudo, sca_conteudo, relatorio_conteudo = _parse_blocos(analise)
 
-                            sast_dast_conteudo, sca_conteudo, relatorio_conteudo = _parse_blocos(analise)
+                        st.markdown("<br><h3>📋 Resultados Detalhados</h3>", unsafe_allow_html=True)
+                        _exibir_abas(tipo, sast_dast_conteudo, sca_conteudo)
 
-                            st.markdown("<br><h3>📋 Resultados Detalhados</h3>", unsafe_allow_html=True)
-                            _exibir_abas(tipo, sast_dast_conteudo, sca_conteudo)
-
-                            if relatorio_conteudo:
-                                st.markdown("<br>", unsafe_allow_html=True)
-                                st.markdown("---")
-                                st.markdown(relatorio_conteudo)
+                        if relatorio_conteudo:
+                            st.markdown("<br>", unsafe_allow_html=True)
+                            st.markdown("---")
+                            st.markdown(relatorio_conteudo)
 
                 except Exception as e:
                     st.error(f"Erro inesperado: {e}")
 
 elif selecionado == "Ativos":
     st.markdown("<div style='font-size:32px; font-weight:700; margin-bottom:20px; color:var(--text-color);'>Inventário de Ativos</div>", unsafe_allow_html=True)
+
+    @st.dialog("Confirmar exclusão")
+    def _modal_confirmar_exclusao(ativo_id, ativo_nome):
+        st.warning(f"⚠️ Tem certeza que deseja excluir **{ativo_nome}**? Essa ação não pode ser desfeita.")
+        col_sim, col_nao = st.columns(2)
+        with col_sim:
+            if st.button("✅ Sim, excluir", key=f"btn_confirma_{ativo_id}", width='stretch'):
+                deletar_ativo(ativo_id)
+                st.success(f"Ativo '{ativo_nome}' excluído com sucesso!")
+                st.rerun()
+        with col_nao:
+            if st.button("❌ Cancelar", key=f"btn_cancela_{ativo_id}", width='stretch'):
+                st.rerun()
+
     ativos = listar_ativos_db()
     if ativos:
+        st.markdown("""
+            <style>
+            div[data-testid="stButton"] button[title="Excluir ativo"] {
+                background: transparent !important;
+                background-image: none !important;
+                background-color: transparent !important;
+                border: 2px solid #ff4b4b !important;
+                color: #ff4b4b !important;
+                border-radius: 8px !important;
+                height: 38px !important;
+                width: 38px !important;
+                min-width: 38px !important;
+                padding: 0px !important;
+                box-shadow: none !important;
+            }
+            div[data-testid="stButton"] button[title="Excluir ativo"]:hover {
+                background: rgba(255,75,75,0.12) !important;
+                background-color: rgba(255,75,75,0.12) !important;
+                border-color: #ff6b6b !important;
+            }
+            </style>
+        """, unsafe_allow_html=True)
+
         for a in ativos:
-            with st.expander(f"🔎 {a[1]} - {a[5]}"):
-                st.write(f"**Tipo:** {a[2]} | **Ambiente:** {a[4]} | **Score:** {a[6]}")
-                st.write(f"**URL:** {a[3]}")
+            ativo_id   = a[0]
+            ativo_nome = a[1]
+
+            col_titulo, col_lixeira = st.columns([20, 1], vertical_alignment="center")
+
+            with col_titulo:
+                with st.expander(f"🔎 {ativo_nome} - {a[5]}"):
+                    st.write(f"**Tipo:** {a[2]} | **Ambiente:** {a[4]} | **Score:** {a[6]}")
+                    st.write(f"**URL:** {a[3]}")
+
+            with col_lixeira:
+                if st.button("🗑️", key=f"btn_excluir_{ativo_id}", help="Excluir ativo"):
+                    _modal_confirmar_exclusao(ativo_id, ativo_nome)
     else:
         st.info("Nenhum ativo cadastrado.")
 
@@ -483,3 +561,25 @@ elif selecionado == "Relatórios":
                 st.info("Gere uma nova análise para este ativo para visualizar o relatório estruturado.")
     else:
         st.info("Nenhum ativo cadastrado. Faça uma análise primeiro.")
+
+elif selecionado == "Configurações":
+    st.markdown("<div style='font-size:32px; font-weight:700; margin-bottom:20px; color:var(--text-color);'>Configurações</div>", unsafe_allow_html=True)
+
+    st.markdown("### 🔄 Re-scan Manual")
+    st.markdown("Force um novo scan em todos os ativos cadastrados sem esperar o agendamento automático de 24 horas.")
+
+    ativos = listar_ativos_db()
+
+    if not ativos:
+        st.warning("⚠️ Nenhum ativo cadastrado para re-escanear.")
+    else:
+        st.info(f"📋 {len(ativos)} ativo(s) serão re-escaneados.")
+
+        if st.button("🔍 Re-escanear todos os ativos agora"):
+            with st.spinner("Re-escaneando todos os ativos... Isso pode demorar alguns minutos."):
+                try:
+                    from Monitoring.monitor import rescan_automatico
+                    rescan_automatico()
+                    st.success("✅ Re-scan concluído! Volte ao Dashboard para ver os resultados atualizados.")
+                except Exception as e:
+                    st.error(f"❌ Erro durante o re-scan: {e}")

@@ -1,0 +1,29 @@
+services:
+
+  zap:
+    image: ghcr.io/zaproxy/zaproxy:stable
+    command: zap.sh -daemon -port 8090 -host 0.0.0.0 -config api.disablekey=true
+    ports:
+      - "8090:8090"
+    networks:
+      - aspm-network
+
+  aspm:
+    build: .
+    ports:
+      - "8501:8501"
+    environment:
+      - GEMINI_KEY_1=${GEMINI_KEY_1}
+      - GEMINI_KEY_2=${GEMINI_KEY_2}
+      - GEMINI_KEY_3=${GEMINI_KEY_3}
+      - ZAP_HOST=zap
+    depends_on:
+      - zap
+    volumes:
+      - ./aspm.db:/app/aspm.db
+    networks:
+      - aspm-network
+
+networks:
+  aspm-network:
+    driver: bridge
