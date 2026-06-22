@@ -9,6 +9,8 @@ on:
 permissions:
   contents: read
   issues: write
+  pull-requests: write
+  security-events: write
 
 jobs:
 
@@ -23,8 +25,20 @@ jobs:
         with:
           config: auto
 
+      - name: Comment PR on SAST failure
+        uses: actions/github-script@v7
+        if: failure() && github.event_name == 'pull_request'
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '❌ **SAST (Semgrep)** encontrou vulnerabilidades no código. Verifique o artefato gerado antes de fazer merge.'
+            })
+
   secrets-scan:
-    name: Deploy - Secrets (Gitleaks)
+    name: Secrets Scan (Gitleaks)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -35,7 +49,6 @@ jobs:
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        continue-on-error: true
 
       - name: Upload Gitleaks Report
         uses: actions/upload-artifact@v4
@@ -44,8 +57,20 @@ jobs:
           name: gitleaks-report
           path: results.sarif
 
+      - name: Comment PR on secrets failure
+        uses: actions/github-script@v7
+        if: failure() && github.event_name == 'pull_request'
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '**Secrets Scan (Gitleaks)** detectou possíveis credenciais ou segredos expostos no código. Revise antes de fazer merge.'
+            })
+
   pipeline-scan:
-    name: Deploy - Pipeline CI/CD (Zizmor)
+    name: Pipeline CI/CD Security (Zizmor)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -67,9 +92,6 @@ jobs:
   dependency-scan:
     name: Dependency Scan (Trivy SCA)
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      security-events: write
     steps:
       - uses: actions/checkout@v4
 
@@ -90,8 +112,20 @@ jobs:
           name: trivy-results
           path: trivy.sarif
 
+      - name: Comment PR on dependency failure
+        uses: actions/github-script@v7
+        if: failure() && github.event_name == 'pull_request'
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '**Dependency Scan (Trivy SCA)** encontrou dependências com vulnerabilidades HIGH ou CRITICAL. Atualize os pacotes antes de fazer merge.'
+            })
+
   sbom:
-    name: Deploy - SBOM (Trivy)
+    name: SBOM (Trivy CycloneDX)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -111,6 +145,45 @@ jobs:
           name: sbom-cyclonedx
           path: sbom.json
 
+  container-scan:
+    name: Container Image Scan (Trivy)
+    runs-on: ubuntu-latest
+    needs: [semgrep, secrets-scan, dependency-scan]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t aspm-platform:${{ github.sha }} .
+
+      - name: Scan Docker image with Trivy
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: 'image'
+          image-ref: 'aspm-platform:${{ github.sha }}'
+          format: 'sarif'
+          output: 'trivy-image.sarif'
+          severity: 'HIGH,CRITICAL'
+          exit-code: '1'
+
+      - name: Upload image scan report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-image-results
+          path: trivy-image.sarif
+
+      - name: Comment PR on container failure
+        uses: actions/github-script@v7
+        if: failure() && github.event_name == 'pull_request'
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '**Container Scan (Trivy)** encontrou vulnerabilidades HIGH ou CRITICAL na imagem Docker. Corrija antes de fazer merge.'
+            })
+
   zap:
     name: DAST (OWASP ZAP)
     runs-on: ubuntu-latest
@@ -123,8 +196,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install app dependencies
-        run: |
-          pip install -r requirements.txt
+        run: pip install -r requirements.txt
 
       - name: Start Streamlit App
         run: |
@@ -137,5 +209,55 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           target: "http://localhost:8501"
           issue_title: "Security Scan: OWASP ZAP Alerts Found"
-          fail_action: false
+          fail_action: true
           artifact_name: "zap-analysis-report"
+
+      - name: Comment PR on DAST failure
+        uses: actions/github-script@v7
+        if: failure() && github.event_name == 'pull_request'
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '**DAST (OWASP ZAP)** detectou vulnerabilidades na aplicação em execução. Verifique o relatório ZAP antes de fazer merge.'
+            })
+
+  security-summary:
+    name: Security Summary
+    runs-on: ubuntu-latest
+    needs: [semgrep, secrets-scan, pipeline-scan, dependency-scan, sbom, container-scan, zap]
+    if: always() && github.event_name == 'pull_request'
+    steps:
+      - name: Comment final summary on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const jobs = {
+              'SAST (Semgrep)':           '${{ needs.semgrep.result }}',
+              'Secrets (Gitleaks)':       '${{ needs.secrets-scan.result }}',
+              'Pipeline (Zizmor)':        '${{ needs.pipeline-scan.result }}',
+              'Dependencies (Trivy SCA)': '${{ needs.dependency-scan.result }}',
+              'SBOM':                     '${{ needs.sbom.result }}',
+              'Container (Trivy Image)':  '${{ needs.container-scan.result }}',
+              'DAST (OWASP ZAP)':         '${{ needs.zap.result }}',
+            };
+
+            const emoji = (r) => r === 'success' ? '✅' : r === 'skipped' ? '⏭️' : '❌';
+
+            const rows = Object.entries(jobs)
+              .map(([name, result]) => `| ${emoji(result)} | ${name} | \`${result}\` |`)
+              .join('\n');
+
+            const allPassed = Object.values(jobs).every(r => r === 'success' || r === 'skipped');
+            const header = allPassed
+              ? '## ✅ Security Pipeline — Todos os checks passaram!'
+              : '## ❌ Security Pipeline — Um ou mais checks falharam';
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `${header}\n\n| Status | Check | Resultado |\n|--------|-------|-----------|\n${rows}\n\n> Verifique os artefatos gerados para mais detalhes.`
+            });
