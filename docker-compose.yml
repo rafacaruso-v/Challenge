@@ -32,7 +32,7 @@ services:
     environment:
       - STREAMLIT_HOST=aspm
     volumes:
-      - ./nginx.conf:/etc/nginx/templates/default.conf.template:ro
+      - ./proxy.conf:/etc/nginx/templates/default.conf.template:ro
     depends_on:
       - aspm
     networks:
