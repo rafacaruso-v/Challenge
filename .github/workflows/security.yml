@@ -225,6 +225,7 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           target: "http://localhost:80"
+          rules_file_name: ".zap/rules.tsv"
           issue_title: "Security Scan: OWASP ZAP Alerts Found"
           fail_action: true
           artifact_name: "zap-analysis-report"
