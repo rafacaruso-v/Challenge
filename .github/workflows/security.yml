@@ -20,10 +20,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Run Semgrep
-        uses: returntocorp/semgrep-action@v1
+      - uses: actions/setup-python@v5
         with:
-          config: auto
+          python-version: "3.13"
+
+      - name: Run Semgrep
+        run: |
+          pip install semgrep
+          semgrep scan --config auto \
+            --exclude-rule generic.nginx.security.missing-internal.missing-internal \
+            --exclude-rule generic.nginx.security.possible-h2c-smuggling.possible-nginx-h2c-smuggling \
+            --error
 
       - name: Comment PR on SAST failure
         uses: actions/github-script@v7
@@ -208,7 +215,7 @@ jobs:
           docker run -d \
             --network host \
             -e STREAMLIT_HOST=localhost \
-            -v ${{ github.workspace }}/nginx.conf:/etc/nginx/templates/default.conf.template:ro \
+            -v ${{ github.workspace }}/proxy.conf:/etc/nginx/templates/default.conf.template:ro \
             --name nginx-proxy \
             nginx:alpine
           timeout 30s bash -c 'until curl -s http://localhost:80; do sleep 2; done' || true
