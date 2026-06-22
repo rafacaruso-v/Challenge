@@ -58,7 +58,6 @@ def rodar_zap(url):
         zap_host = os.environ.get("ZAP_HOST", "127.0.0.1")
         zap_url  = f'http://{zap_host}:8090'
 
-        # Aguarda o ZAP iniciar (essencial no Docker)
         if not _aguardar_zap(zap_url):
             print("ZAP não respondeu após todas as tentativas.")
             return "ERRO_PROXY_ZAP"
@@ -70,7 +69,6 @@ def rodar_zap(url):
         zap.core.access_url(url)
         time.sleep(2)
 
-        # ── Spider tradicional ────────────────────────────────────────────
         print("Iniciando Spider...")
         scan_id = zap.spider.scan(url)
         while int(zap.spider.status(scan_id)) < 100:
@@ -78,7 +76,6 @@ def rodar_zap(url):
             time.sleep(2)
         print("Spider tradicional concluído.")
 
-        # ── Ajax Spider ───────────────────────────────────────────────────
         print("Iniciando Ajax Spider para renderizar JavaScript...")
         zap.ajaxSpider.set_option_max_duration(5)
         zap.ajaxSpider.scan(url)
@@ -87,7 +84,6 @@ def rodar_zap(url):
             time.sleep(5)
         print("Ajax Spider concluído.")
 
-        # ── Active Scan ───────────────────────────────────────────────────
         print(f"Iniciando Active Scan em: {url}")
         zap.ascan.set_option_thread_per_host(15)
         ascan_id = zap.ascan.scan(url)
