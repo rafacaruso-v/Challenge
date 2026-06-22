@@ -20,15 +20,8 @@ FROM python:3.13-slim
 
 WORKDIR /app
 
-RUN apt-get update && apt-get remove -y \
-    perl \
-    perl-base \
-    perl-modules-5.40 \
-    libperl5.40 \
-    ncurses-bin \
-    curl \
-    && apt-get autoremove -y \
-    && apt-get install -y git \
+RUN apt-get update && apt-get install -y \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /install /usr/local
