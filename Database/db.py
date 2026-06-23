@@ -89,7 +89,7 @@ def atualizar_ativo(nome, url, criticidade, score, analise):
          nome, url)
     )
     conexao.commit()
-    # registrar_historico() removido — só o scheduler registra pontos no histórico
+
 
 def listar_ativos_db():
     conexao = conectar()
@@ -105,8 +105,6 @@ def deletar_ativo(ativo_id):
     """
     conexao = conectar()
     cursor = conexao.cursor()
-
-    # Busca o nome do ativo antes de deletar, para limpar alertas vinculados
     cursor.execute("SELECT nome FROM ativos WHERE id = ?", (ativo_id,))
     resultado = cursor.fetchone()
 
@@ -118,9 +116,6 @@ def deletar_ativo(ativo_id):
 
     conexao.commit()
 
-# =====================================
-# FUNÇÕES DE HISTÓRICO
-# =====================================
 
 def registrar_historico():
     """
@@ -177,9 +172,6 @@ def listar_historico(minutos=60):
 
     return list(reversed(filtrados))
 
-# =====================================
-# FUNÇÕES DE ALERTAS
-# =====================================
 
 def salvar_alerta(ativo_nome, tipo, mensagem):
     """

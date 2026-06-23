@@ -4,9 +4,6 @@ import threading
 from Monitoring.monitor import rescan_automatico
 from Database.db import registrar_historico
 
-# =====================================
-# CONFIGURAÇÃO DO SCHEDULER
-# =====================================
 
 _scheduler_iniciado = False
 _lock = threading.Lock()

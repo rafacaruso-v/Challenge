@@ -7,14 +7,10 @@ import os
 from collections import defaultdict
 from dotenv import load_dotenv
 
-# =====================================
-# CARREGA VARIÁVEIS DE AMBIENTE
-# =====================================
+
 load_dotenv()
 
-# =====================================
-# CONFIGURAÇÃO DE ROTAÇÃO DE CHAVES
-# =====================================
+
 CHAVES_API = [
     chave for chave in [
         os.environ.get("GEMINI_KEY_1", ""),
@@ -25,9 +21,7 @@ CHAVES_API = [
     if chave.strip()
 ]
 
-# =====================================
-# SCHEMA
-# =====================================
+
 class AnaliseVulnerabilidadeSchema(BaseModel):
     criticidade: str = Field(description="Deve ser: Baixa, Média, Alta ou Crítica")
     score: int = Field(description="Pontuação de risco de 0 a 100")
