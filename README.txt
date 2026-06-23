@@ -32,3 +32,5 @@ git push origin main
 -----------------------------------------------------------------------------------------------------
 
 No final do projeto, vamos poder subir o docker.
+
+docker compose up --build
