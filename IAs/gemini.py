@@ -339,10 +339,10 @@ Retorne SOMENTE JSON seguindo estritamente o schema fornecido.
 ---VULNS_SCA---
 {bloco_sca.strip()}
 ---RELATORIO---
-### 📝 Análise de Postura de Segurança
+### Análise de Postura de Segurança
 {dados_json.get('explicacao_executiva')}
 
-### 🚀 Plano de Ação Recomendado
+### Plano de Ação Recomendado
 {re.sub(r'(\d+\.\s)', r'\n\n\1', dados_json.get('recomendacoes', '')).strip()}
 """
             return dados_json.get("criticidade"), dados_json.get("score"), texto_formatado

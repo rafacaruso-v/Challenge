@@ -18,6 +18,7 @@ services:
       - GEMINI_KEY_3=${GEMINI_KEY_3}
       - GEMINI_KEY_4=${GEMINI_KEY_4}
       - ZAP_HOST=zap
+      - SESSION_SECRET=${SESSION_SECRET}
     depends_on:
       - zap
     volumes:

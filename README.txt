@@ -9,6 +9,8 @@ pip install google-genai
 pip install plotly pandas
 pip install streamlit-option-menu
 pip install schedule
+pip install streamlit-cookies-controller
+pip install bcrypt
 
 (Esse texto vai ser atualizado frequentemente conforme o trabalho aumenta para dizer o que deve ser baixado.)
 

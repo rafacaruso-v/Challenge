@@ -18,6 +18,12 @@ from Database.db import (
     deletar_ativo
 )
 from Monitoring.scheduler import iniciar_scheduler
+from Auth.auth import (
+    usuario_logado,
+    autenticar,
+    cadastrar_usuario,
+    logout,
+)
 
 st.set_page_config(
     page_title="ASPM Platform",
@@ -27,9 +33,6 @@ st.set_page_config(
 
 criar_tabela()
 
-if "scheduler_iniciado" not in st.session_state:
-    iniciar_scheduler()
-    st.session_state["scheduler_iniciado"] = True
 
 def get_base64_image(image_path):
     if os.path.exists(image_path):
@@ -98,10 +101,103 @@ st.markdown(
     unsafe_allow_html=True
 )
 
+
 # =====================================
-# MENU LATERAL
+# GATE DE AUTENTICAÇÃO
 # =====================================
+
+def _tela_login_cadastro():
+    col_esq, col_centro, col_dir = st.columns([1, 1.2, 1])
+    with col_centro:
+        if logo_base64:
+            st.markdown(f"""
+                <div class="logo-container">
+                    <img src="data:image/png;base64,{logo_base64}" class="logo-img">
+                </div>
+            """, unsafe_allow_html=True)
+
+        aba_login, aba_cadastro = st.tabs(["Entrar", "Criar conta"])
+
+        with aba_login:
+            with st.form("form_login"):
+                username = st.text_input("Usuário")
+                senha = st.text_input("Senha", type="password")
+                enviado = st.form_submit_button("Entrar", width='stretch')
+
+            if enviado:
+                sucesso, mensagem = autenticar(username.strip(), senha)
+                if sucesso:
+                    st.success(mensagem)
+                    st.rerun()
+                else:
+                    st.error(mensagem)
+
+        with aba_cadastro:
+            with st.form("form_cadastro"):
+                novo_nome = st.text_input("Nome completo")
+                novo_username = st.text_input("Usuário", key="cad_username")
+                novo_email = st.text_input("E-mail")
+                nova_senha = st.text_input("Senha", type="password", key="cad_senha")
+                confirmar_senha = st.text_input("Confirmar senha", type="password")
+                enviado_cadastro = st.form_submit_button("Criar conta", width='stretch')
+
+            if enviado_cadastro:
+                if nova_senha != confirmar_senha:
+                    st.error("As senhas não coincidem.")
+                else:
+                    sucesso, mensagem = cadastrar_usuario(
+                        novo_username.strip(), novo_email.strip(), nova_senha, novo_nome.strip()
+                    )
+                    if sucesso:
+                        st.success(mensagem)
+                    else:
+                        st.error(mensagem)
+
+    st.stop()
+
+
+sessao = usuario_logado()
+if sessao is None:
+    _tela_login_cadastro()
+
+usuario_id   = sessao["usuario_id"]
+nome_usuario = sessao["nome"] or sessao["username"]
+
+
+# =====================================
+# APP PRINCIPAL
+# =====================================
+
+if "scheduler_iniciado" not in st.session_state:
+    iniciar_scheduler()
+    st.session_state["scheduler_iniciado"] = True
+
+
 with st.sidebar:
+    # CSS isolado só para o botão de logout (via container key),
+    # sem afetar o estilo padrão dos outros botões do app.
+    st.markdown("""
+        <style>
+        .st-key-logout_wrapper button {
+            background: transparent !important;
+            background-image: none !important;
+            background-color: transparent !important;
+            border: 2px solid #c084fc !important;
+            color: #c084fc !important;
+            font-weight: 600 !important;
+            border-radius: 10px !important;
+            margin-top: 20px;
+            box-shadow: none !important;
+        }
+        .st-key-logout_wrapper button:hover {
+            background: rgba(168,85,247,0.12) !important;
+            background-color: rgba(168,85,247,0.12) !important;
+            border-color: #e9d5ff !important;
+            color: #e9d5ff !important;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
     if logo_base64:
         st.markdown(f"""
             <div class="logo-container">
@@ -110,6 +206,11 @@ with st.sidebar:
         """, unsafe_allow_html=True)
     else:
         st.markdown("<h1 style='text-align:center;'>🛡️ ASPM</h1>", unsafe_allow_html=True)
+
+    st.markdown(
+        f"<p style='text-align:center; opacity:0.7; margin-bottom:10px;'>Olá, <b>{nome_usuario}</b></p>",
+        unsafe_allow_html=True
+    )
 
     selecionado = option_menu(
         menu_title=None,
@@ -129,22 +230,16 @@ with st.sidebar:
     )
     st.markdown("---")
 
-st.sidebar.markdown(
-    """
-    <div style="display:flex; align-items:center; gap:10px; padding:10px;
-        border-radius:10px; background:#050816; border:3px solid #c084fc;
-        cursor:pointer; margin-top:20px;">
-        <i class="bi bi-box-arrow-right" style="color:#c084fc;"></i>
-        <span style="color:#c084fc; font-weight:600;">Sair</span>
-    </div>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
-    """,
-    unsafe_allow_html=True
-)
+    with st.container(key="logout_wrapper"):
+        if st.button("➜] Sair", key="btn_logout", width='stretch'):
+            logout()
+            st.rerun()
+
 
 # =====================================
 # HELPERS
 # =====================================
+
 def _render_cards(conteudo: str):
     import re
     if "[NIVEL:" not in conteudo:
@@ -232,7 +327,7 @@ def _exibir_abas(tipo: str, sast_dast_conteudo: str, sca_conteudo: str):
             _render_cards(bloco_dast)
 
 def exibir_alertas_banner():
-    alertas = listar_alertas_ativos()
+    alertas = listar_alertas_ativos(usuario_id)
     if not alertas:
         return
 
@@ -261,13 +356,14 @@ def exibir_alertas_banner():
             """, unsafe_allow_html=True)
         with col_btn:
             if st.button("✓", key=f"resolve_{alerta_id}", help="Marcar como resolvido"):
-                resolver_alerta(alerta_id)
+                resolver_alerta(usuario_id, alerta_id)
                 st.rerun()
 
     st.markdown("---")
 
+
 # =====================================
-# LÓGICA DE PÁGINAS
+# PÁGINAS
 # =====================================
 
 if selecionado == "Dashboard":
@@ -275,16 +371,14 @@ if selecionado == "Dashboard":
     st.markdown("<p style='font-size:18px; margin-bottom:40px; opacity:0.8;'>Application Security Posture Management</p>", unsafe_allow_html=True)
 
     exibir_alertas_banner()
-    ativos = listar_ativos_db()
+    ativos = listar_ativos_db(usuario_id)
 
     if ativos:
         df = pd.DataFrame(ativos, columns=[
-            'id', 'nome', 'tipo', 'url', 'ambiente',
+            'id', 'usuario_id', 'nome', 'tipo', 'url', 'ambiente',
             'criticidade', 'score', 'analise', 'ultima_analise'
         ])
         df = df[df['criticidade'] != 'Erro']
-
-        # Normaliza "Alto" -> "Alta" para consistência
         df['criticidade'] = df['criticidade'].replace('Alto', 'Alta')
 
         if df.empty:
@@ -323,11 +417,9 @@ if selecionado == "Dashboard":
             with col_graf1:
                 st.markdown("<p style='font-weight:700; font-size:20px;'>Distribuição de Riscos</p>", unsafe_allow_html=True)
                 cores_map = {'Crítica': '#ff4b4b', 'Alta': '#ff8c00', 'Média': '#ffd700', 'Baixa': '#00c853'}
-
                 df_counts = df['criticidade'].value_counts().reset_index()
                 df_counts.columns = ['criticidade', 'count']
                 df_counts['label'] = df_counts.apply(lambda r: f"{r['criticidade']} ({r['count']})", axis=1)
-
                 fig_donut = px.pie(
                     df_counts, names='label', values='count',
                     hole=0.55, color='criticidade', color_discrete_map=cores_map
@@ -348,16 +440,13 @@ if selecionado == "Dashboard":
 
             with col_graf2:
                 st.markdown("<p style='font-weight:700; font-size:20px;'>Evolução de Risco (Últimas 24h)</p>", unsafe_allow_html=True)
-
-                historico = listar_historico(minutos=1440)
-
+                historico = listar_historico(usuario_id, minutos=1440)
                 if historico:
                     df_hist = pd.DataFrame(historico, columns=['score_medio', 'data'])
                     df_hist['hora'] = pd.to_datetime(df_hist['data'], format="%d/%m/%Y %H:%M:%S").dt.strftime("%H:%M:%S")
                     fig_line = px.line(df_hist, x='hora', y='score_medio', markers=True)
                 else:
                     fig_line = px.line()
-
                 fig_line.update_traces(line_color='#7c3aed', line_width=3, marker=dict(size=8, color='#a855f7'))
                 fig_line.update_layout(
                     paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
@@ -372,7 +461,6 @@ if selecionado == "Dashboard":
             with col_graf3:
                 st.markdown("<p style='font-weight:700; font-size:20px;'>Risco por Ambiente</p>", unsafe_allow_html=True)
                 df_env = df.groupby('ambiente')['score'].mean().round(0).reset_index()
-
                 fig_bar = px.bar(df_env, x='score', y='ambiente', orientation='h', text='score')
                 fig_bar.update_traces(marker_color='#3b82f6', textposition='outside', texttemplate='%{text}%')
                 fig_bar.update_layout(
@@ -451,7 +539,7 @@ elif selecionado == "Análises":
                     if crit == "Erro":
                         st.error("❌ Erro na análise da IA. O ativo não foi salvo.")
                     else:
-                        salvar_ativo(nome, tipo, url, ambiente, crit, score, analise)
+                        salvar_ativo(usuario_id, nome, tipo, url, ambiente, crit, score, analise)
                         st.success("✅ Análise concluída!")
                         st.metric("Risk Score", score)
 
@@ -477,14 +565,14 @@ elif selecionado == "Ativos":
         col_sim, col_nao = st.columns(2)
         with col_sim:
             if st.button("✅ Sim, excluir", key=f"btn_confirma_{ativo_id}", width='stretch'):
-                deletar_ativo(ativo_id)
+                deletar_ativo(usuario_id, ativo_id)
                 st.success(f"Ativo '{ativo_nome}' excluído com sucesso!")
                 st.rerun()
         with col_nao:
             if st.button("❌ Cancelar", key=f"btn_cancela_{ativo_id}", width='stretch'):
                 st.rerun()
 
-    ativos = listar_ativos_db()
+    ativos = listar_ativos_db(usuario_id)
     if ativos:
         st.markdown("""
             <style>
@@ -511,14 +599,14 @@ elif selecionado == "Ativos":
 
         for a in ativos:
             ativo_id   = a[0]
-            ativo_nome = a[1]
+            ativo_nome = a[2]
 
             col_titulo, col_lixeira = st.columns([20, 1], vertical_alignment="center")
 
             with col_titulo:
-                with st.expander(f"🔎 {ativo_nome} - {a[5]}"):
-                    st.write(f"**Tipo:** {a[2]} | **Ambiente:** {a[4]} | **Score:** {a[6]}")
-                    st.write(f"**URL:** {a[3]}")
+                with st.expander(f"🔎 {ativo_nome} - {a[6]}"):
+                    st.write(f"**Tipo:** {a[3]} | **Ambiente:** {a[5]} | **Score:** {a[7]}")
+                    st.write(f"**URL:** {a[4]}")
 
             with col_lixeira:
                 if st.button("🗑️", key=f"btn_excluir_{ativo_id}", help="Excluir ativo"):
@@ -528,9 +616,9 @@ elif selecionado == "Ativos":
 
 elif selecionado == "Vulnerabilidades":
     st.markdown("<div style='font-size:32px; font-weight:700; margin-bottom:20px; color:var(--text-color);'>Gestão de Vulnerabilidades</div>", unsafe_allow_html=True)
-    ativos = listar_ativos_db()
+    ativos = listar_ativos_db(usuario_id)
     if ativos:
-        opcoes_ativos = {f"{a[1]} - {a[4]}": a for a in ativos}
+        opcoes_ativos = {f"{a[2]} - {a[5]}": a for a in ativos}
         ativo_selecionado = st.selectbox(
             "Selecione um ativo para visualizar os detalhes das vulnerabilidades:",
             options=list(opcoes_ativos.keys())
@@ -538,8 +626,8 @@ elif selecionado == "Vulnerabilidades":
         if ativo_selecionado:
             dados_ativo = opcoes_ativos[ativo_selecionado]
             try:
-                tipo_ativo = dados_ativo[2]
-                sast_dast_conteudo, sca_conteudo, _ = _parse_blocos(dados_ativo[7])
+                tipo_ativo = dados_ativo[3]
+                sast_dast_conteudo, sca_conteudo, _ = _parse_blocos(dados_ativo[8])
                 _exibir_abas(tipo_ativo, sast_dast_conteudo, sca_conteudo)
             except IndexError:
                 st.warning("⚠️ O texto da análise está corrompido ou em formato antigo.")
@@ -548,13 +636,13 @@ elif selecionado == "Vulnerabilidades":
 
 elif selecionado == "Relatórios":
     st.markdown("<div style='font-size:32px; font-weight:700; margin-bottom:20px; color:var(--text-color);'>Relatórios de Segurança Executivos</div>", unsafe_allow_html=True)
-    ativos = listar_ativos_db()
+    ativos = listar_ativos_db(usuario_id)
     if ativos:
-        opcoes_ativos = {f"{a[1]} - {a[4]}": a for a in ativos}
+        opcoes_ativos = {f"{a[2]} - {a[5]}": a for a in ativos}
         ativo_sel = st.selectbox("Selecione o ativo para o relatório:", options=list(opcoes_ativos.keys()))
         if ativo_sel:
             dados_ativo = opcoes_ativos[ativo_sel]
-            _, _, relatorio_conteudo = _parse_blocos(dados_ativo[7])
+            _, _, relatorio_conteudo = _parse_blocos(dados_ativo[8])
             if relatorio_conteudo:
                 st.markdown(relatorio_conteudo)
             else:
@@ -565,21 +653,21 @@ elif selecionado == "Relatórios":
 elif selecionado == "Configurações":
     st.markdown("<div style='font-size:32px; font-weight:700; margin-bottom:20px; color:var(--text-color);'>Configurações</div>", unsafe_allow_html=True)
 
-    st.markdown("### 🔄 Re-scan Manual")
-    st.markdown("Force um novo scan em todos os ativos cadastrados sem esperar o agendamento automático de 24 horas.")
+    st.markdown("### Re-scan Manual")
+    st.markdown("Force um novo scan em todos os seus ativos cadastrados sem esperar o agendamento automático de 24 horas.")
 
-    ativos = listar_ativos_db()
+    ativos = listar_ativos_db(usuario_id)
 
     if not ativos:
         st.warning("⚠️ Nenhum ativo cadastrado para re-escanear.")
     else:
-        st.info(f"📋 {len(ativos)} ativo(s) serão re-escaneados.")
+        st.info(f"{len(ativos)} ativo(s) serão re-escaneados.")
 
         if st.button("🔍 Re-escanear todos os ativos agora"):
             with st.spinner("Re-escaneando todos os ativos... Isso pode demorar alguns minutos."):
                 try:
                     from Monitoring.monitor import rescan_automatico
-                    rescan_automatico()
+                    rescan_automatico(usuario_id)
                     st.success("✅ Re-scan concluído! Volte ao Dashboard para ver os resultados atualizados.")
                 except Exception as e:
                     st.error(f"❌ Erro durante o re-scan: {e}")

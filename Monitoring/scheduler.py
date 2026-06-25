@@ -23,11 +23,11 @@ def iniciar_scheduler():
 
     def job():
         print("[Scheduler] Iniciando re-scan automático...")
+        # Sem usuario_id: rescan_automatico() itera por TODOS os usuários
+        # cadastrados, já que o scheduler roda em background sem contexto
+        # de sessão Streamlit (não há "usuário logado" nesse momento).
         rescan_automatico()
-        print("[Scheduler] Re-scan concluído.")
-        print("[Scheduler] Registrando ponto no histórico...")
-        registrar_historico()
-        print("[Scheduler] Histórico atualizado.")
+        print("[Scheduler] Re-scan concluído para todos os usuários.")
 
     schedule.clear()
     schedule.every(60).minutes.do(job)
