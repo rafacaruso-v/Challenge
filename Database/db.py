@@ -73,11 +73,24 @@ def criar_tabela():
     # Migrações incrementais para bancos já existentes (pré-multiusuário).
     # Cada ALTER é envolvido em try/except pois falha silenciosamente se
     # a coluna já existir (comportamento já usado no projeto original).
-    for tabela in ("ativos", "alertas", "historico"):
-        try:
-            cursor.execute(f"ALTER TABLE {tabela} ADD COLUMN usuario_id INTEGER")
-        except Exception:
-            pass
+    # Nota: os nomes de tabela aqui são literais fixos no código (não há
+    # interpolação de string/SQL dinâmico), então não há risco de SQL
+    # Injection — escrevemos cada ALTER explicitamente em vez de montar
+    # a query via f-string/loop para deixar isso inequívoco para o Semgrep.
+    try:
+        cursor.execute("ALTER TABLE ativos ADD COLUMN usuario_id INTEGER")
+    except Exception:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE alertas ADD COLUMN usuario_id INTEGER")
+    except Exception:
+        pass
+
+    try:
+        cursor.execute("ALTER TABLE historico ADD COLUMN usuario_id INTEGER")
+    except Exception:
+        pass
 
     try:
         cursor.execute("ALTER TABLE ativos ADD COLUMN ultima_analise TEXT")
