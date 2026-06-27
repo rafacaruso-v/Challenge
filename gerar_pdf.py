@@ -136,7 +136,7 @@ def _bloco_capa(story, ativo, nome_usuario, estilos):
          Paragraph("Frameworks de Referencia", lbl)],
         [Paragraph(ativo.get("ultima_analise", datetime.now().strftime("%d/%m/%Y %H:%M")), val),
          Paragraph(nome_usuario, val),
-         Paragraph("ISO 27001:2022 | SOC2 Type II | CIS Benchmark", val)],
+         Paragraph("ISO 27001 | SOC2 Type II | CIS Benchmark", val)],
     ]
     te = Table(escopo_data, colWidths=[45*mm, 45*mm, 80*mm])
     te.setStyle(TableStyle([
@@ -189,11 +189,12 @@ def _bloco_capa(story, ativo, nome_usuario, estilos):
     story.append(Spacer(1, 4))
 
     soc2 = [
-        ["CC6 — Logical Access", "Controles de acesso logico e autenticacao"],
+        ["CC6 — Logical Access", "Controles de acesso lógico e autenticação"],
         ["CC7 — System Operations", "Monitoramento de vulnerabilidades e incidentes"],
-        ["CC8 — Change Management", "Gestao de mudancas e deploys seguros"],
-        ["A1 — Availability", "Disponibilidade e resiliencia do sistema"],
-        ["C1 — Confidentiality", "Protecao de dados confidenciais"],
+        ["CC8 — Change Management", "Gestão de mudanças e deploys seguros"],
+        ["A1 — Availability", "Disponibilidade e resiliência do sistema"],
+        ["C1 — Confidentiality", "Proteção de dados confidenciais"],
+        ["PI1 — Processing Integrity", "Integridade no processamento de resultados de scans e cálculo de risk score"],
     ]
     soc2_data = [[Paragraph("<b>Criterio</b>", lbl), Paragraph("<b>Descricao</b>", lbl)]]
     for s in soc2:
@@ -220,16 +221,16 @@ def _bloco_capa(story, ativo, nome_usuario, estilos):
 
 def _ferramentas_por_tipo(tipo: str) -> list:
     base = [
-        ["Gemini AI", "IA / LLM", "Priorizacao e analise de vulnerabilidades com IA", "Google DeepMind"],
+        ["Gemini AI", "IA / LLM", "Priorização e análise de vulnerabilidades com IA", "Google DeepMind"],
     ]
     if tipo == "Repositorio":
         return [
-            ["Semgrep", "SAST", "Analise estatica de codigo-fonte (OWASP Top 10, CWE Top 25)", "semgrep.dev"],
-            ["Trivy", "SCA", "Analise de composicao de software e dependencias vulneraveis", "aquasecurity.github.io"],
+            ["Semgrep", "SAST", "Análise estática de código-fonte (OWASP Top 10, CWE Top 25)", "semgrep.dev"],
+            ["Trivy", "SCA", "Análise de composição de software e dependências vulneráveis", "aquasecurity.github.io"],
         ] + base
     elif tipo in ["API", "Aplicacao"]:
         return [
-            ["OWASP ZAP", "DAST", "Analise dinamica da aplicacao em execucao (OWASP Top 10)", "zaproxy.org"],
+            ["OWASP ZAP", "DAST", "Análise dinâmica da aplicação em execução (OWASP Top 10)", "zaproxy.org"],
         ] + base
     return base
 
@@ -266,7 +267,6 @@ def _secao_vulnerabilidades(story, analise: str, estilos):
     story.append(Paragraph("2. Vulnerabilidades Identificadas", estilos["secao"]))
     _linha_hr(story)
 
-    # ── Contagem correta: soma os itens dentro de cada bloco ──────────────────
     contagem = {"critico": 0, "alto": 0, "medio": 0, "baixo": 0}
     blocos_count = re.split(r'\[NIVEL:(\w+)\](.*?)\[/NIVEL\]', analise, flags=re.DOTALL)
     j = 1
@@ -306,7 +306,6 @@ def _secao_vulnerabilidades(story, analise: str, estilos):
     story.append(tr)
     story.append(Spacer(1, 10))
 
-    # ── Cards de vulnerabilidades ─────────────────────────────────────────────
     blocos = re.split(r'\[NIVEL:(\w+)\](.*?)\[/NIVEL\]', analise, flags=re.DOTALL)
     i = 1
     while i < len(blocos) - 2:
@@ -367,20 +366,20 @@ def _secao_declaracao(story, nome_usuario: str, estilos):
         "Este relatório foi gerado pela plataforma ASPM e documenta os resultados da analise "
         "de seguranca realizada sobre o ativo descrito na secao 1. As analises foram conduzidas "
         "com ferramentas reconhecidas pelo mercado e mapeadas para os principais frameworks de "
-        "seguranca (ISO 27001:2022, SOC2 Type II, CIS Benchmark).",
+        "seguranca (ISO 27001, SOC2 Type II, CIS Benchmark).",
         val
     ))
     story.append(Spacer(1, 8))
 
     iso_controles = [
-        ["A.8.8",  "Gestao de Vulnerabilidades Tecnicas", "Cobertura por SAST, DAST e SCA"],
-        ["A.8.25", "Ciclo de Vida de Desenvolvimento Seguro", "Pipeline CI/CD com verificacoes de segurança"],
-        ["A.8.29", "Testes de Seguranca no Desenvolvimento", "Testes automatizados a cada commit"],
-        ["A.5.23", "Seguranca no Uso de Servicos em Nuvem", "Monitoramento continuo de ativos"],
-        ["A.8.16", "Monitoramento de Atividades", "Alertas e historico de risk score"],
+        ["A.8.8",  "Gestão de Vulnerabilidades Tecnicas", "Cobertura por SAST, DAST e SCA"],
+        ["A.8.25", "Ciclo de Vida de Desenvolvimento Seguro", "Pipeline CI/CD com verificações de segurança"],
+        ["A.8.29", "Testes de Segurança no Desenvolvimento", "Testes automatizados a cada commit"],
+        ["A.5.23", "Segurança no Uso de Serviços em Nuvem", "Monitoramento continuo de ativos"],
+        ["A.8.16", "Monitoramento de Atividades", "Alertas e histórico de risk score"],
     ]
 
-    story.append(Paragraph("Controles ISO 27001:2022 Cobertos", estilos["label"]))
+    story.append(Paragraph("Controles ISO 27001 Cobertos", estilos["label"]))
     story.append(Spacer(1, 4))
 
     iso_data = [[
@@ -443,7 +442,7 @@ def _rodape(canvas_obj, doc):
     canvas_obj.rect(0, 16*mm, W, 0.5*mm, fill=1, stroke=0)
     canvas_obj.setFont("Helvetica", 8)
     canvas_obj.setFillColor(TEXTO_CLARO)
-    canvas_obj.drawString(20*mm, 6*mm, "ASPM Platform — Relatório Confidencial | ISO 27001:2022 | SOC2 Type II")
+    canvas_obj.drawString(20*mm, 6*mm, "ASPM Platform — Relatório Confidencial | ISO 27001 | SOC2 Type II")
     canvas_obj.drawRightString(W - 20*mm, 6*mm,
         f"Gerado em {datetime.now().strftime('%d/%m/%Y %H:%M')}  |  Página {doc.page}")
     canvas_obj.restoreState()
