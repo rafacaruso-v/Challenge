@@ -70,13 +70,7 @@ def criar_tabela():
         """
     )
 
-    # Migrações incrementais para bancos já existentes (pré-multiusuário).
-    # Cada ALTER é envolvido em try/except pois falha silenciosamente se
-    # a coluna já existir (comportamento já usado no projeto original).
-    # Nota: os nomes de tabela aqui são literais fixos no código (não há
-    # interpolação de string/SQL dinâmico), então não há risco de SQL
-    # Injection — escrevemos cada ALTER explicitamente em vez de montar
-    # a query via f-string/loop para deixar isso inequívoco para o Semgrep.
+
     try:
         cursor.execute("ALTER TABLE ativos ADD COLUMN usuario_id INTEGER")
     except Exception:
@@ -100,15 +94,8 @@ def criar_tabela():
     conexao.commit()
 
 
-# =====================================
-# FUNÇÕES DE USUÁRIO / AUTENTICAÇÃO
-# =====================================
 
 def criar_usuario(username, email, senha_hash, nome):
-    """
-    Cria um novo usuário. Retorna o id do usuário criado, ou None se
-    username/email já existirem (violação de UNIQUE).
-    """
     conexao = conectar()
     cursor = conexao.cursor()
     try:
@@ -126,7 +113,6 @@ def criar_usuario(username, email, senha_hash, nome):
         return None
 
 def buscar_usuario_por_username(username):
-    """Retorna a linha completa do usuário (ou None) pelo username."""
     conexao = conectar()
     cursor = conexao.cursor()
     cursor.execute(
@@ -145,10 +131,6 @@ def buscar_usuario_por_id(usuario_id):
     return cursor.fetchone()
 
 
-# =====================================
-# FUNÇÕES DE ATIVOS (isoladas por usuario_id)
-# =====================================
-
 def salvar_ativo(usuario_id, nome, tipo, url, ambiente, criticidade, score, analise):
     conexao = conectar()
     cursor = conexao.cursor()
@@ -163,10 +145,8 @@ def salvar_ativo(usuario_id, nome, tipo, url, ambiente, criticidade, score, anal
          datetime.now().strftime("%d/%m/%Y %H:%M"))
     )
     conexao.commit()
-    # registrar_historico() removido — só o scheduler registra pontos no histórico
 
 def atualizar_ativo(usuario_id, nome, url, criticidade, score, analise):
-    """Atualiza o ativo existente (do mesmo usuário) ao invés de criar duplicata."""
     conexao = conectar()
     cursor = conexao.cursor()
     cursor.execute(
@@ -190,10 +170,6 @@ def listar_ativos_db(usuario_id):
     return ativos
 
 def deletar_ativo(usuario_id, ativo_id):
-    """
-    Remove um ativo pelo ID (somente se pertencer ao usuário) e limpa
-    quaisquer alertas associados a ele para não deixar registros órfãos.
-    """
     conexao = conectar()
     cursor = conexao.cursor()
     cursor.execute(
@@ -218,11 +194,6 @@ def deletar_ativo(usuario_id, ativo_id):
 
 
 def registrar_historico(usuario_id):
-    """
-    Calcula o score médio de todos os ativos do usuário (exceto 'Erro')
-    e salva um ponto no histórico com timestamp atual.
-    Deve ser chamada APENAS pelo scheduler após o rescan completo.
-    """
     conexao = conectar()
     cursor = conexao.cursor()
 
@@ -247,9 +218,7 @@ def registrar_historico(usuario_id):
     conexao.commit()
 
 def listar_historico(usuario_id, minutos=60):
-    """
-    Retorna os pontos do histórico (do usuário) dos últimos N minutos.
-    """
+
     conexao = conectar()
     cursor = conexao.cursor()
     cursor.execute(
@@ -277,10 +246,7 @@ def listar_historico(usuario_id, minutos=60):
 
 
 def salvar_alerta(usuario_id, ativo_nome, tipo, mensagem):
-    """
-    Salva o alerta apenas se não existir um alerta idêntico (mesmo usuário
-    + mesmo ativo + mesmo tipo + mesma mensagem) ainda não resolvido.
-    """
+
     conexao = conectar()
     cursor = conexao.cursor()
 

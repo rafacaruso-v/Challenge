@@ -89,11 +89,6 @@ def _aguardar_zap(zap_url: str, tentativas: int = 10, intervalo: int = 5) -> boo
 
 
 def _listar_todos_usuario_ids():
-    """
-    Retorna a lista de ids de todos os usuários cadastrados. Usado pelo
-    job de background (sem contexto de sessão Streamlit) para saber por
-    quais usuários iterar durante o re-scan automático.
-    """
     conexao = sqlite3.connect("aspm.db", check_same_thread=False)
     cursor = conexao.cursor()
     cursor.execute("SELECT id FROM usuarios")
@@ -101,7 +96,6 @@ def _listar_todos_usuario_ids():
 
 
 def _rescan_usuario(usuario_id):
-    """Executa o re-scan de todos os ativos de UM usuário específico."""
     from Scanners.owaspzap import rodar_zap
     from Scanners.semgrep import rodar_semgrep
     from Scanners.trivy import rodar_trivy
@@ -158,16 +152,6 @@ def _rescan_usuario(usuario_id):
 
 
 def rescan_automatico(usuario_id=None):
-    """
-    Re-escaneia ativos de segurança.
-
-    - Se `usuario_id` for fornecido (ex: chamado a partir da tela
-      "Configurações" do app, com uma sessão Streamlit ativa), re-escaneia
-      apenas os ativos daquele usuário.
-    - Se `usuario_id` for None (ex: chamado pelo scheduler em background,
-      sem contexto de sessão), itera por TODOS os usuários cadastrados e
-      re-escaneia os ativos de cada um.
-    """
     from Database.db import registrar_historico
 
     if usuario_id is not None:

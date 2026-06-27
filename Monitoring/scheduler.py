@@ -9,11 +9,6 @@ _scheduler_iniciado = False
 _lock = threading.Lock()
 
 def iniciar_scheduler():
-    """
-    Roda o scheduler em background sem bloquear o Streamlit.
-    Garante que apenas UMA thread/job seja registrada, mesmo que o
-    Streamlit re-execute o script várias vezes.
-    """
     global _scheduler_iniciado
 
     with _lock:
@@ -23,9 +18,6 @@ def iniciar_scheduler():
 
     def job():
         print("[Scheduler] Iniciando re-scan automático...")
-        # Sem usuario_id: rescan_automatico() itera por TODOS os usuários
-        # cadastrados, já que o scheduler roda em background sem contexto
-        # de sessão Streamlit (não há "usuário logado" nesse momento).
         rescan_automatico()
         print("[Scheduler] Re-scan concluído para todos os usuários.")
 

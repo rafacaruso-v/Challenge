@@ -8,11 +8,6 @@ def _normalizar_url(url: str) -> str:
     return url.replace("localhost", "127.0.0.1")
 
 def _agrupar_alertas(alertas: list) -> list:
-    """
-    Agrupa alertas do mesmo tipo em um único item,
-    listando os endpoints afetados sem repetir a descrição.
-    Reduz drasticamente o volume enviado para a IA.
-    """
     grupos = {}
     for a in alertas:
         nome = a.get("name", "")
@@ -37,10 +32,7 @@ def _agrupar_alertas(alertas: list) -> list:
     return resultado
 
 def _aguardar_zap(zap_url: str, tentativas: int = 8, intervalo: int = 3) -> bool:
-    """
-    Aguarda o ZAP iniciar antes de tentar conectar.
-    Retorna True se o ZAP estiver pronto, False se esgotou as tentativas.
-    """
+
     for i in range(tentativas):
         try:
             req.get(zap_url, timeout=3)
