@@ -23,6 +23,7 @@ from Auth.auth import (
     autenticar,
     cadastrar_usuario,
     logout,
+    render_cookie_manager,
 )
 
 st.set_page_config(
@@ -32,6 +33,7 @@ st.set_page_config(
 )
 
 criar_tabela()
+render_cookie_manager()
 
 
 def get_base64_image(image_path):
@@ -102,10 +104,6 @@ st.markdown(
 )
 
 
-# =====================================
-# GATE DE AUTENTICAÇÃO
-# =====================================
-
 def _tela_login_cadastro():
     col_esq, col_centro, col_dir = st.columns([1, 1.2, 1])
     with col_centro:
@@ -164,18 +162,12 @@ usuario_id   = sessao["usuario_id"]
 nome_usuario = sessao["nome"] or sessao["username"]
 
 
-# =====================================
-# APP PRINCIPAL
-# =====================================
-
 if "scheduler_iniciado" not in st.session_state:
     iniciar_scheduler()
     st.session_state["scheduler_iniciado"] = True
 
 
 with st.sidebar:
-    # CSS isolado só para o botão de logout (via container key),
-    # sem afetar o estilo padrão dos outros botões do app.
     st.markdown("""
         <style>
         .st-key-logout_wrapper button {
@@ -233,12 +225,7 @@ with st.sidebar:
     with st.container(key="logout_wrapper"):
         if st.button("➜] Sair", key="btn_logout", width='stretch'):
             logout()
-            st.rerun()
 
-
-# =====================================
-# HELPERS
-# =====================================
 
 def _render_cards(conteudo: str):
     import re
@@ -361,10 +348,6 @@ def exibir_alertas_banner():
 
     st.markdown("---")
 
-
-# =====================================
-# PÁGINAS
-# =====================================
 
 if selecionado == "Dashboard":
     st.markdown("<div><p id='titulo-principal'>ASPM PLATFORM</p></div>", unsafe_allow_html=True)
@@ -635,7 +618,7 @@ elif selecionado == "Vulnerabilidades":
         st.info("Nenhum ativo cadastrado. Faça uma análise primeiro para gerenciar vulnerabilidades.")
 
 elif selecionado == "Relatórios":
-    st.markdown("<div style='font-size:32px; font-weight:700; margin-bottom:20px; color:var(--text-color);'>Relatórios de Segurança Executivos</div>", unsafe_allow_html=True)
+    st.markdown("<div style='font-size:32px; font-weight:700; margin-bottom:20px;'>Relatórios de Segurança Executivos</div>", unsafe_allow_html=True)
     ativos = listar_ativos_db(usuario_id)
     if ativos:
         opcoes_ativos = {f"{a[2]} - {a[5]}": a for a in ativos}
@@ -645,8 +628,22 @@ elif selecionado == "Relatórios":
             _, _, relatorio_conteudo = _parse_blocos(dados_ativo[8])
             if relatorio_conteudo:
                 st.markdown(relatorio_conteudo)
+                from gerar_pdf import gerar_pdf_relatorio
+                ativo_dict = {
+                    "nome": dados_ativo[2], "tipo": dados_ativo[3],
+                    "url": dados_ativo[4], "ambiente": dados_ativo[5],
+                    "criticidade": dados_ativo[6], "score": dados_ativo[7],
+                    "ultima_analise": dados_ativo[9]
+                }
+                pdf_bytes = gerar_pdf_relatorio(ativo_dict, dados_ativo[8], nome_usuario)
+                st.download_button(
+                    label="📄 Baixar Relatório PDF",
+                    data=pdf_bytes,
+                    file_name=f"relatorio_{dados_ativo[2].replace(' ', '_')}.pdf",
+                    mime="application/pdf"
+                )
             else:
-                st.info("Gere uma nova análise para este ativo para visualizar o relatório estruturado.")
+                st.info("Gere uma nova análise para visualizar o relatório.")
     else:
         st.info("Nenhum ativo cadastrado. Faça uma análise primeiro.")
 
