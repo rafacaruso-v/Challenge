@@ -59,11 +59,9 @@ def _linha_hr(story, cor=None):
 
 
 def _bloco_capa(story, ativo, nome_usuario, estilos):
-    """Página de capa completa."""
     W = 170 * mm
     cor_crit = _cor_criticidade(ativo["criticidade"])
 
-    # Header
     for txt, st in [
         ("ASPM PLATFORM", estilos["titulo"]),
         ("Relatório de Segurança Executivo", estilos["subtitulo"]),
@@ -268,11 +266,17 @@ def _secao_vulnerabilidades(story, analise: str, estilos):
     story.append(Paragraph("2. Vulnerabilidades Identificadas", estilos["secao"]))
     _linha_hr(story)
 
-    niveis = re.findall(r'\[NIVEL:(\w+)\]', analise)
+    # ── Contagem correta: soma os itens dentro de cada bloco ──────────────────
     contagem = {"critico": 0, "alto": 0, "medio": 0, "baixo": 0}
-    for n in niveis:
-        if n in contagem:
-            contagem[n] += 1
+    blocos_count = re.split(r'\[NIVEL:(\w+)\](.*?)\[/NIVEL\]', analise, flags=re.DOTALL)
+    j = 1
+    while j < len(blocos_count) - 2:
+        nivel_c = blocos_count[j].strip()
+        resto_c = blocos_count[j+2]
+        itens_c = [l for l in resto_c.split("\n") if l.strip().startswith("- ")]
+        if nivel_c in contagem:
+            contagem[nivel_c] += len(itens_c) if itens_c else 1
+        j += 3
 
     lbl = ParagraphStyle("lbl3", fontName="Helvetica-Bold", fontSize=8, textColor=TEXTO_CLARO)
     resumo_data = [[
@@ -302,6 +306,7 @@ def _secao_vulnerabilidades(story, analise: str, estilos):
     story.append(tr)
     story.append(Spacer(1, 10))
 
+    # ── Cards de vulnerabilidades ─────────────────────────────────────────────
     blocos = re.split(r'\[NIVEL:(\w+)\](.*?)\[/NIVEL\]', analise, flags=re.DOTALL)
     i = 1
     while i < len(blocos) - 2:
@@ -310,8 +315,8 @@ def _secao_vulnerabilidades(story, analise: str, estilos):
         resto  = blocos[i+2]
         itens  = [l[2:].strip() for l in resto.split("\n") if l.strip().startswith("- ")]
 
-        cor   = {"critico": CRITICO, "alto": ALTO, "médio": MEDIO, "baixo": BAIXO}.get(nivel, TEXTO_CLARO)
-        badge = {"critico": "CRITICO", "alto": "ALTO", "médio": "MEDIO", "baixo": "BAIXO"}.get(nivel, nivel.upper())
+        cor   = {"critico": CRITICO, "alto": ALTO, "medio": MEDIO, "baixo": BAIXO}.get(nivel, TEXTO_CLARO)
+        badge = {"critico": "CRITICO", "alto": "ALTO", "medio": "MEDIO", "baixo": "BAIXO"}.get(nivel, nivel.upper())
 
         tt = ParagraphStyle("ct", fontName="Helvetica-Bold", fontSize=9, textColor=cor, leading=12)
         bt = ParagraphStyle("cb", fontName="Helvetica-Bold", fontSize=8, textColor=BRANCO, alignment=TA_CENTER, leading=10)
@@ -319,7 +324,7 @@ def _secao_vulnerabilidades(story, analise: str, estilos):
 
         linhas = [[Paragraph(titulo, tt), Paragraph(badge, bt)]]
         for item in itens:
-            linhas.append([Paragraph(f"• {item}", it), ""])
+            linhas.append([Paragraph(f"• {item}", it), Paragraph("", it)])
 
         t = Table(linhas, colWidths=[148*mm, 22*mm])
         ts = TableStyle([
@@ -329,14 +334,12 @@ def _secao_vulnerabilidades(story, analise: str, estilos):
             ("LINEBEFORE",    (0,0), (0,-1),  3, cor),
             ("BOX",           (0,0), (-1,-1), 0.3, BORDA),
             ("LINEBELOW",     (0,0), (-1,0),  0.3, BORDA),
-            ("VALIGN",        (0,0), (-1,-1), "MIDDLE"),
+            ("VALIGN",        (0,0), (-1,-1), "TOP"),
             ("LEFTPADDING",   (0,0), (-1,-1), 8),
             ("RIGHTPADDING",  (0,0), (-1,-1), 8),
             ("TOPPADDING",    (0,0), (-1,-1), 6),
             ("BOTTOMPADDING", (0,0), (-1,-1), 6),
         ])
-        if len(linhas) > 1:
-            ts.add("SPAN", (0,1), (1, len(linhas)-1))
         t.setStyle(ts)
         story.append(t)
         story.append(Spacer(1, 5))
@@ -353,7 +356,6 @@ def _secao_relatorio(story, relatorio: str, estilos):
 
 
 def _secao_declaracao(story, nome_usuario: str, estilos):
-    """Seção de declaração de conformidade (ISO 27001 / SOC2)."""
     story.append(PageBreak())
     story.append(Paragraph("4. Declaração de Conformidade", estilos["secao"]))
     _linha_hr(story)
