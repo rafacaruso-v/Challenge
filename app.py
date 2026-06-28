@@ -15,9 +15,11 @@ from Database.db import (
     listar_alertas_ativos,
     resolver_alerta,
     listar_historico,
-    deletar_ativo
+    deletar_ativo,
+    get_intervalo_rescan,
+    set_intervalo_rescan,
 )
-from Monitoring.scheduler import iniciar_scheduler
+from Monitoring.scheduler import iniciar_scheduler, reiniciar_scheduler
 from Auth.auth import (
     usuario_logado,
     autenticar,
@@ -74,6 +76,9 @@ st.markdown(
         border: 1px solid rgba(168,85,247,0.2) !important;
         border-radius: 12px; transition: 0.4s ease;
         color: var(--text-color) !important;
+    }}
+    div[data-baseweb="select"], div[data-baseweb="select"] * {{
+        cursor: default !important;
     }}
     .stButton button {{
         background: linear-gradient(90deg, #7c3aed, #a855f7) !important;
@@ -226,6 +231,16 @@ with st.sidebar:
         if st.button("➜] Sair", key="btn_logout", width='stretch'):
             logout()
 
+
+def _label_intervalo(minutos: int) -> str:
+    if minutos < 60:
+        return f"Últimos {minutos} min"
+    elif minutos == 60:
+        return "Última 1h"
+    elif minutos < 1440:
+        return f"Últimas {minutos // 60}h"
+    else:
+        return f"Últimas {minutos // 60}h"
 
 def _render_cards(conteudo: str):
     import re
@@ -422,8 +437,10 @@ if selecionado == "Dashboard":
                 st.plotly_chart(fig_donut, width='content')
 
             with col_graf2:
-                st.markdown("<p style='font-weight:700; font-size:20px;'>Evolução de Risco (Últimas 24h)</p>", unsafe_allow_html=True)
-                historico = listar_historico(usuario_id, minutos=1440)
+                intervalo_atual = get_intervalo_rescan()
+                label_hist      = _label_intervalo(intervalo_atual)
+                st.markdown(f"<p style='font-weight:700; font-size:20px;'>Evolução de Risco ({label_hist})</p>", unsafe_allow_html=True)
+                historico = listar_historico(usuario_id, minutos=intervalo_atual)
                 if historico:
                     df_hist = pd.DataFrame(historico, columns=['score_medio', 'data'])
                     df_hist['hora'] = pd.to_datetime(df_hist['data'], format="%d/%m/%Y %H:%M:%S").dt.strftime("%H:%M:%S")
@@ -491,9 +508,9 @@ elif selecionado == "Análises":
     st.markdown("<div style='font-size:32px; font-weight:700; margin-bottom:20px; color:var(--text-color);'>Análise de Ativo</div>", unsafe_allow_html=True)
 
     nome     = st.text_input("Nome do ativo")
-    tipo     = st.selectbox("Tipo do ativo", ["API", "Aplicação", "Repositório"])
+    tipo     = st.selectbox("Tipo do ativo", ["API", "Aplicação", "Repositório"], filter_mode=None)
     url      = st.text_input("URL / Caminho do ativo")
-    ambiente = st.selectbox("Ambiente", ["Produção", "Homologação", "Desenvolvimento"])
+    ambiente = st.selectbox("Ambiente", ["Produção", "Homologação", "Desenvolvimento"], filter_mode=None)
 
     if st.button("🔍 Iniciar Análise"):
         if not url.strip():
@@ -604,7 +621,8 @@ elif selecionado == "Vulnerabilidades":
         opcoes_ativos = {f"{a[2]} - {a[5]}": a for a in ativos}
         ativo_selecionado = st.selectbox(
             "Selecione um ativo para visualizar os detalhes das vulnerabilidades:",
-            options=list(opcoes_ativos.keys())
+            options=list(opcoes_ativos.keys()),
+            filter_mode=None
         )
         if ativo_selecionado:
             dados_ativo = opcoes_ativos[ativo_selecionado]
@@ -622,7 +640,7 @@ elif selecionado == "Relatórios":
     ativos = listar_ativos_db(usuario_id)
     if ativos:
         opcoes_ativos = {f"{a[2]} - {a[5]}": a for a in ativos}
-        ativo_sel = st.selectbox("Selecione o ativo para o relatório:", options=list(opcoes_ativos.keys()))
+        ativo_sel = st.selectbox("Selecione o ativo para o relatório:", options=list(opcoes_ativos.keys()), filter_mode=None)
         if ativo_sel:
             dados_ativo = opcoes_ativos[ativo_sel]
             _, _, relatorio_conteudo = _parse_blocos(dados_ativo[8])
@@ -649,17 +667,15 @@ elif selecionado == "Relatórios":
 
 elif selecionado == "Configurações":
     st.markdown("<div style='font-size:32px; font-weight:700; margin-bottom:20px; color:var(--text-color);'>Configurações</div>", unsafe_allow_html=True)
-
-    st.markdown("### Re-scan Manual")
-    st.markdown("Force um novo scan em todos os seus ativos cadastrados sem esperar o agendamento automático de 24 horas.")
+    st.markdown("### 🔄 Re-scan Manual")
+    st.markdown("Force um novo scan em todos os seus ativos sem esperar o agendamento automático.")
 
     ativos = listar_ativos_db(usuario_id)
 
     if not ativos:
         st.warning("⚠️ Nenhum ativo cadastrado para re-escanear.")
     else:
-        st.info(f"{len(ativos)} ativo(s) serão re-escaneados.")
-
+        st.info(f"📋 {len(ativos)} ativo(s) serão re-escaneados.")
         if st.button("🔍 Re-escanear todos os ativos agora"):
             with st.spinner("Re-escaneando todos os ativos... Isso pode demorar alguns minutos."):
                 try:
@@ -668,3 +684,33 @@ elif selecionado == "Configurações":
                     st.success("✅ Re-scan concluído! Volte ao Dashboard para ver os resultados atualizados.")
                 except Exception as e:
                     st.error(f"❌ Erro durante o re-scan: {e}")
+
+    st.markdown("---")
+    st.markdown("### ⏱️ Agendamento de Re-scan Automático")
+    st.markdown("Define de quanto em quanto tempo o sistema re-escaneia todos os ativos automaticamente.")
+
+    intervalo_atual = get_intervalo_rescan()
+
+    opcoes = {
+        "A cada 30 minutos":  30,
+        "A cada 1 hora":      60,
+        "A cada 3 horas":    180,
+        "A cada 6 horas":    360,
+        "A cada 12 horas":   720,
+        "A cada 24 horas":  1440,
+    }
+
+    label_atual = next((k for k, v in opcoes.items() if v == intervalo_atual), "A cada 1 hora")
+
+    novo_label = st.selectbox(
+        "Intervalo de re-scan:",
+        options=list(opcoes.keys()),
+        index=list(opcoes.keys()).index(label_atual),
+        filter_mode=None
+    )
+
+    if st.button("💾 Salvar agendamento"):
+        novo_intervalo = opcoes[novo_label]
+        set_intervalo_rescan(novo_intervalo)
+        reiniciar_scheduler(novo_intervalo)
+        st.info(f"O próximo re-scan automático será em até {novo_intervalo} minutos.")

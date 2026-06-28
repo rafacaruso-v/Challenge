@@ -12,8 +12,7 @@ def criar_tabela():
     conexao = conectar()
     cursor = conexao.cursor()
 
-    cursor.execute(
-        """
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS usuarios (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT UNIQUE NOT NULL,
@@ -22,11 +21,9 @@ def criar_tabela():
             nome TEXT,
             criado_em TEXT
         )
-        """
-    )
+    """)
 
-    cursor.execute(
-        """
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS ativos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             usuario_id INTEGER NOT NULL,
@@ -40,11 +37,9 @@ def criar_tabela():
             ultima_analise TEXT,
             FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
         )
-        """
-    )
+    """)
 
-    cursor.execute(
-        """
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS alertas (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             usuario_id INTEGER NOT NULL,
@@ -55,11 +50,9 @@ def criar_tabela():
             resolvido INTEGER DEFAULT 0,
             FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
         )
-        """
-    )
+    """)
 
-    cursor.execute(
-        """
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS historico (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             usuario_id INTEGER NOT NULL,
@@ -67,32 +60,53 @@ def criar_tabela():
             data TEXT,
             FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
         )
-        """
-    )
+    """)
 
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS configuracoes (
+            chave TEXT PRIMARY KEY,
+            valor TEXT NOT NULL
+        )
+    """)
 
-    try:
-        cursor.execute("ALTER TABLE ativos ADD COLUMN usuario_id INTEGER")
-    except Exception:
-        pass
+    for sql in [
+        "ALTER TABLE ativos ADD COLUMN usuario_id INTEGER",
+        "ALTER TABLE alertas ADD COLUMN usuario_id INTEGER",
+        "ALTER TABLE historico ADD COLUMN usuario_id INTEGER",
+        "ALTER TABLE ativos ADD COLUMN ultima_analise TEXT",
+    ]:
+        try:
+            cursor.execute(sql)
+        except Exception:
+            pass
 
-    try:
-        cursor.execute("ALTER TABLE alertas ADD COLUMN usuario_id INTEGER")
-    except Exception:
-        pass
-
-    try:
-        cursor.execute("ALTER TABLE historico ADD COLUMN usuario_id INTEGER")
-    except Exception:
-        pass
-
-    try:
-        cursor.execute("ALTER TABLE ativos ADD COLUMN ultima_analise TEXT")
-    except Exception:
-        pass
+    cursor.execute("""
+        INSERT OR IGNORE INTO configuracoes (chave, valor)
+        VALUES ('intervalo_rescan_minutos', '60')
+    """)
 
     conexao.commit()
 
+
+def get_intervalo_rescan() -> int:
+    """Retorna o intervalo de re-scan em minutos (padrão: 60)."""
+    conexao = conectar()
+    cursor = conexao.cursor()
+    cursor.execute(
+        "SELECT valor FROM configuracoes WHERE chave = 'intervalo_rescan_minutos'"
+    )
+    resultado = cursor.fetchone()
+    return int(resultado[0]) if resultado else 60
+
+def set_intervalo_rescan(minutos: int):
+    """Salva o novo intervalo de re-scan em minutos."""
+    conexao = conectar()
+    cursor = conexao.cursor()
+    cursor.execute(
+        "INSERT OR REPLACE INTO configuracoes (chave, valor) VALUES ('intervalo_rescan_minutos', ?)",
+        (str(minutos),)
+    )
+    conexao.commit()
 
 
 def criar_usuario(username, email, senha_hash, nome):
@@ -131,6 +145,7 @@ def buscar_usuario_por_id(usuario_id):
     return cursor.fetchone()
 
 
+
 def salvar_ativo(usuario_id, nome, tipo, url, ambiente, criticidade, score, analise):
     conexao = conectar()
     cursor = conexao.cursor()
@@ -161,13 +176,11 @@ def atualizar_ativo(usuario_id, nome, url, criticidade, score, analise):
     )
     conexao.commit()
 
-
 def listar_ativos_db(usuario_id):
     conexao = conectar()
     cursor = conexao.cursor()
     cursor.execute("SELECT * FROM ativos WHERE usuario_id = ?", (usuario_id,))
-    ativos = cursor.fetchall()
-    return ativos
+    return cursor.fetchall()
 
 def deletar_ativo(usuario_id, ativo_id):
     conexao = conectar()
@@ -177,99 +190,73 @@ def deletar_ativo(usuario_id, ativo_id):
         (ativo_id, usuario_id)
     )
     resultado = cursor.fetchone()
-
     cursor.execute(
         "DELETE FROM ativos WHERE id = ? AND usuario_id = ?",
         (ativo_id, usuario_id)
     )
-
     if resultado:
-        nome_ativo = resultado[0]
         cursor.execute(
             "DELETE FROM alertas WHERE ativo_nome = ? AND usuario_id = ?",
-            (nome_ativo, usuario_id)
+            (resultado[0], usuario_id)
         )
-
     conexao.commit()
 
 
 def registrar_historico(usuario_id):
     conexao = conectar()
     cursor = conexao.cursor()
-
     cursor.execute(
         "SELECT score FROM ativos WHERE usuario_id = ? AND criticidade != 'Erro'",
         (usuario_id,)
     )
     scores = [r[0] for r in cursor.fetchall()]
-
     if not scores:
         return
-
     score_medio = sum(scores) / len(scores)
-
     cursor.execute(
-        """
-        INSERT INTO historico (usuario_id, score_medio, data)
-        VALUES (?, ?, ?)
-        """,
+        "INSERT INTO historico (usuario_id, score_medio, data) VALUES (?, ?, ?)",
         (usuario_id, score_medio, datetime.now().strftime("%d/%m/%Y %H:%M:%S"))
     )
     conexao.commit()
 
 def listar_historico(usuario_id, minutos=60):
-
     conexao = conectar()
     cursor = conexao.cursor()
     cursor.execute(
         """
         SELECT score_medio, data FROM historico
         WHERE usuario_id = ?
-        ORDER BY id DESC
-        LIMIT 50
+        ORDER BY id DESC LIMIT 50
         """,
         (usuario_id,)
     )
     resultados = cursor.fetchall()
-
     if not resultados:
         return []
-
     agora = datetime.now()
     filtrados = []
     for score_medio, data_str in resultados:
         data_ponto = datetime.strptime(data_str, "%d/%m/%Y %H:%M:%S")
         if (agora - data_ponto).total_seconds() <= minutos * 60:
             filtrados.append((score_medio, data_str))
-
     return list(reversed(filtrados))
 
 
 def salvar_alerta(usuario_id, ativo_nome, tipo, mensagem):
-
     conexao = conectar()
     cursor = conexao.cursor()
-
     cursor.execute(
         """
         SELECT id FROM alertas
-        WHERE usuario_id = ?
-          AND ativo_nome = ?
-          AND tipo       = ?
-          AND mensagem   = ?
-          AND resolvido  = 0
+        WHERE usuario_id = ? AND ativo_nome = ? AND tipo = ? AND mensagem = ? AND resolvido = 0
         LIMIT 1
         """,
         (usuario_id, ativo_nome, tipo, mensagem)
     )
     if cursor.fetchone():
         return
-
     cursor.execute(
-        """
-        INSERT INTO alertas (usuario_id, ativo_nome, tipo, mensagem, data)
-        VALUES (?, ?, ?, ?, ?)
-        """,
+        "INSERT INTO alertas (usuario_id, ativo_nome, tipo, mensagem, data) VALUES (?, ?, ?, ?, ?)",
         (usuario_id, ativo_nome, tipo, mensagem, datetime.now().strftime("%d/%m/%Y %H:%M"))
     )
     conexao.commit()
@@ -281,8 +268,7 @@ def listar_alertas_ativos(usuario_id):
         """
         SELECT * FROM alertas
         WHERE usuario_id = ? AND resolvido = 0
-        ORDER BY id DESC
-        LIMIT 10
+        ORDER BY id DESC LIMIT 10
         """,
         (usuario_id,)
     )
