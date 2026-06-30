@@ -114,7 +114,7 @@ def _tela_login_cadastro():
     with col_centro:
         if logo_base64:
             st.markdown(f"""
-                <div class="logo-container">
+                <div class="logo-container" style="padding-bottom: 100px;">
                     <img src="data:image/png;base64,{logo_base64}" class="logo-img">
                 </div>
             """, unsafe_allow_html=True)
@@ -211,7 +211,7 @@ with st.sidebar:
 
     selecionado = option_menu(
         menu_title=None,
-        options=["Dashboard", "Análises", "Ativos", "Vulnerabilidades", "Relatórios", "Políticas", "Configurações"],
+        options=["Dashboard", "Análises", "Ativos", "Vulnerabilidades", "Relatórios", "Logs", "Configurações"],
         icons=["house-fill", "graph-up-arrow", "pc-display", "shield-exclamation", "file-earmark-text", "clipboard-check", "gear"],
         default_index=0,
         styles={
