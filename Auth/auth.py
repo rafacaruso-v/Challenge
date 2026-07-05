@@ -5,7 +5,7 @@ import hmac
 import hashlib
 import base64
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import bcrypt
 import streamlit as st
@@ -75,6 +75,7 @@ def _gerar_token_sessao(usuario_id: int, username: str) -> str:
         "exp":        time.time() + (COOKIE_EXPIRY_DAYS * 86400),
     })
 
+
 def validar_username(username: str):
     if not username or len(username) < 3:
         return "Usuário deve ter ao menos 3 caracteres."
@@ -96,13 +97,26 @@ def validar_senha(senha: str):
         return "Senha deve conter ao menos 1 símbolo (ex: @, #, !, %)."
     return None
 
+
 def _get_cookie_manager() -> stx.CookieManager:
     if "_cookie_manager" not in st.session_state:
-        st.session_state["_cookie_manager"] = stx.CookieManager()
+        st.session_state["_cookie_manager"] = stx.CookieManager(key="aspm_cookie_manager")
     return st.session_state["_cookie_manager"]
 
 def render_cookie_manager():
-    _get_cookie_manager()
+    cookie_manager = _get_cookie_manager()
+
+    pendente = st.session_state.pop("_cookie_pending", None)
+    if pendente is not None:
+        token, expira = pendente
+        cookie_manager.set(COOKIE_NAME, token, expires_at=expira)
+
+    if st.session_state.get("_cookie_delete_pending"):
+        try:
+            cookie_manager.delete(COOKIE_NAME)
+        except KeyError:
+            pass
+
 
 def cadastrar_usuario(username: str, email: str, senha: str, nome: str):
     erro = validar_username(username) or validar_email(email) or validar_senha(senha)
@@ -130,13 +144,17 @@ def autenticar(username: str, senha: str):
     usuario_id, db_username, email, senha_hash, nome = usuario
     if not verificar_senha(senha, senha_hash):
         return False, "Usuário ou senha inválidos."
+
     token  = _gerar_token_sessao(usuario_id, db_username)
-    expiry = datetime.now() + timedelta(days=COOKIE_EXPIRY_DAYS)
-    manager = _get_cookie_manager()
-    manager.set(COOKIE_NAME, token, expires_at=expiry)
+    expira = datetime.now(timezone.utc) + timedelta(days=COOKIE_EXPIRY_DAYS)
+
+    st.session_state.pop("_cookie_delete_pending", None)
+    st.session_state["_cookie_pending"] = (token, expira)
+
     st.session_state["usuario_id"] = usuario_id
     st.session_state["username"]   = db_username
     st.session_state["nome"]       = nome
+
     registrar_log(
         usuario_id, nome or db_username,
         acao="Usuário Autenticado",
@@ -161,31 +179,38 @@ def logout():
             ambiente="Todos",
             origem="Auth Service"
         )
-    manager = _get_cookie_manager()
-    manager.delete(COOKIE_NAME)
-    for chave in ("usuario_id", "username", "nome"):
-        st.session_state.pop(chave, None)
+    for chave in list(st.session_state.keys()):
+        if chave not in ("_cookie_manager",):
+            st.session_state.pop(chave, None)
+    st.session_state["_cookie_delete_pending"] = True
     st.rerun()
 
 def usuario_logado():
+    if st.session_state.get("_cookie_delete_pending"):
+        return None
+
     if "usuario_id" in st.session_state:
         return {
             "usuario_id": st.session_state["usuario_id"],
             "username":   st.session_state["username"],
             "nome":       st.session_state["nome"],
         }
-    manager = _get_cookie_manager()
-    token   = manager.get(COOKIE_NAME)
+
+    token = st.context.cookies.get(COOKIE_NAME)
     if not token:
         return None
+
     payload = _verificar_token(token)
     if payload is None:
         return None
+
     usuario = buscar_usuario_por_id(payload["usuario_id"])
     if usuario is None:
         return None
+
     usuario_id, db_username, email, senha_hash, nome = usuario
     st.session_state["usuario_id"] = usuario_id
     st.session_state["username"]   = db_username
     st.session_state["nome"]       = nome
+
     return {"usuario_id": usuario_id, "username": db_username, "nome": nome}
