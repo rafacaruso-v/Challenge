@@ -2,17 +2,9 @@ Alguns pontos importantes. Para o código funcionar corretamente, vc deve baixar
 
 Abra o CMD do Windows e digite os comandos abaixo, quando terminar um, prossiga para o próximo: 
 
-pip install streamlit
-pip install semgrep
-pip install zaproxy
-pip install google-genai
-pip install plotly pandas
-pip install streamlit-option-menu
-pip install schedule
-pip install extra-streamlit-components
-pip install bcrypt
+Baixe todas as bibliotecas no requirements.txt
 
-(Esse texto vai ser atualizado frequentemente conforme o trabalho aumenta para dizer o que deve ser baixado.)
+(Escreva pip install e instale todos de uma vez, ou se quiser um por um.)
 
 -----------------------------------------------------------------------------------------------------
 
