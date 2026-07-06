@@ -1,10 +1,10 @@
 Alguns pontos importantes. Para o código funcionar corretamente, vc deve baixar algumas ferramentas.
 
-Abra o CMD do Windows e digite os comandos abaixo, quando terminar um, prossiga para o próximo: 
-
-Baixe todas as bibliotecas no requirements.txt
+Abra o CMD do Windows e baixe todas as bibliotecas no requirements.txt
 
 (Escreva pip install e instale todos de uma vez, ou se quiser um por um.)
+
+Ex: pip install streamlit
 
 -----------------------------------------------------------------------------------------------------
 
