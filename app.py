@@ -32,6 +32,20 @@ from Auth.auth import (
     render_cookie_manager,
 )
 
+estilo_cursor = """
+<style>
+div[data-baseweb="select"] {
+    cursor: default !important;
+}
+div[data-baseweb="select"] * {
+    cursor: default !important;
+}
+</style>
+"""
+
+st.html(estilo_cursor)
+
+
 st.set_page_config(
     page_title="ASPM Platform",
     page_icon="logo.ico",
@@ -341,10 +355,6 @@ def exibir_alertas_banner():
     st.markdown("---")
 
 
-# =====================================
-# PÁGINAS
-# =====================================
-
 if selecionado == "Dashboard":
     st.markdown("<div><p id='titulo-principal'>ASPM PLATFORM</p></div>", unsafe_allow_html=True)
     st.markdown("<p style='font-size:18px; margin-bottom:40px; opacity:0.8;'>Application Security Posture Management</p>", unsafe_allow_html=True)
@@ -466,9 +476,9 @@ elif selecionado == "Análises":
     st.markdown("<div style='font-size:32px; font-weight:700; margin-bottom:20px; color:var(--text-color);'>Análise de Ativo</div>", unsafe_allow_html=True)
 
     nome     = st.text_input("Nome do ativo")
-    tipo     = st.selectbox("Tipo do ativo", ["API", "Aplicação", "Repositório"])
+    tipo     = st.selectbox("Tipo do ativo", ["API", "Aplicação", "Repositório"], filter_mode=None)
     url      = st.text_input("URL / Caminho do ativo")
-    ambiente = st.selectbox("Ambiente", ["Produção", "Homologação", "Desenvolvimento"])
+    ambiente = st.selectbox("Ambiente", ["Produção", "Homologação", "Desenvolvimento"], filter_mode=None)
 
     if st.button("🔍 Iniciar Análise"):
         if not url.strip():
@@ -584,7 +594,7 @@ elif selecionado == "Vulnerabilidades":
     if ativos:
         opcoes_ativos = {f"{a[2]} - {a[5]}": a for a in ativos}
         ativo_selecionado = st.selectbox(
-            "Selecione um ativo:", options=list(opcoes_ativos.keys())
+            "Selecione um ativo:", options=list(opcoes_ativos.keys()), filter_mode=None
         )
         if ativo_selecionado:
             dados_ativo = opcoes_ativos[ativo_selecionado]
@@ -601,7 +611,7 @@ elif selecionado == "Relatórios":
     ativos = listar_ativos_db(usuario_id)
     if ativos:
         opcoes_ativos = {f"{a[2]} - {a[5]}": a for a in ativos}
-        ativo_sel = st.selectbox("Selecione o ativo:", options=list(opcoes_ativos.keys()))
+        ativo_sel = st.selectbox("Selecione o ativo:", options=list(opcoes_ativos.keys()), filter_mode=None)
         if ativo_sel:
             dados_ativo = opcoes_ativos[ativo_sel]
             _, _, rel_c = _parse_blocos(dados_ativo[8])
@@ -729,7 +739,7 @@ elif selecionado == "Configurações":
     }
     label_atual = next((k for k, v in opcoes.items() if v == intervalo_atual), "A cada 1 hora")
     novo_label  = st.selectbox("Intervalo de re-scan:", options=list(opcoes.keys()),
-                                index=list(opcoes.keys()).index(label_atual))
+                                index=list(opcoes.keys()).index(label_atual), filter_mode=None)
 
     if st.button("💾 Salvar agendamento"):
         novo_intervalo = opcoes[novo_label]
