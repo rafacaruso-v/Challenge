@@ -223,14 +223,14 @@ def _ferramentas_por_tipo(tipo: str) -> list:
     base = [
         ["Gemini AI", "IA / LLM", "Priorização e análise de vulnerabilidades com IA", "Google DeepMind"],
     ]
-    if tipo == "Repositorio":
+    if tipo == "Repositório":
         return [
-            ["Semgrep", "SAST", "Análise estática de código-fonte (OWASP Top 10, CWE Top 25)", "semgrep.dev"],
+            ["Semgrep", "SAST", "Análise estática de código-fonte", "semgrep.dev"],
             ["Trivy", "SCA", "Análise de composição de software e dependências vulneráveis", "aquasecurity.github.io"],
         ] + base
-    elif tipo in ["API", "Aplicacao"]:
+    elif tipo in ["API", "Aplicação"]:
         return [
-            ["OWASP ZAP", "DAST", "Análise dinâmica da aplicação em execução (OWASP Top 10)", "zaproxy.org"],
+            ["OWASP ZAP", "DAST", "Análise dinâmica da aplicação em execução", "zaproxy.org"],
         ] + base
     return base
 

@@ -26,19 +26,16 @@ class AnaliseVulnerabilidadeSchema(BaseModel):
     criticidade: str = Field(description="Deve ser: Baixa, Média, Alta ou Crítica")
     score: int = Field(description="Pontuação de risco de 0 a 100")
 
-    # SAST por nível
     criticos_sast: list[str] = Field(description="Lista de vulnerabilidades CRÍTICAS encontradas pelo SAST (Semgrep). Formato: 'TipoVuln: descrição breve do problema e arquivo/linha afetada'. Se não houver ou SAST for IGNORADO, retorne lista vazia.")
     altos_sast:    list[str] = Field(description="Lista de vulnerabilidades ALTAS encontradas pelo SAST. Mesmo formato. Se não houver ou SAST for IGNORADO, retorne lista vazia.")
     medios_sast:   list[str] = Field(description="Lista de vulnerabilidades MÉDIAS encontradas pelo SAST. Mesmo formato. Se não houver ou SAST for IGNORADO, retorne lista vazia.")
     baixos_sast:   list[str] = Field(description="Lista de vulnerabilidades BAIXAS encontradas pelo SAST. Mesmo formato. Se não houver ou SAST for IGNORADO, retorne lista vazia.")
 
-    # DAST por nível
     criticos_dast: list[str] = Field(description="Lista de vulnerabilidades CRÍTICAS encontradas pelo DAST (OWASP ZAP). Formato: 'TipoVuln: descrição breve do problema e endpoint afetado'. Se não houver ou DAST for IGNORADO, retorne lista vazia.")
     altos_dast:    list[str] = Field(description="Lista de vulnerabilidades ALTAS encontradas pelo DAST. Mesmo formato. Se não houver ou DAST for IGNORADO, retorne lista vazia.")
     medios_dast:   list[str] = Field(description="Lista de vulnerabilidades MÉDIAS encontradas pelo DAST. Mesmo formato. Se não houver ou DAST for IGNORADO, retorne lista vazia.")
     baixos_dast:   list[str] = Field(description="Lista de vulnerabilidades BAIXAS encontradas pelo DAST. Mesmo formato. Se não houver ou DAST for IGNORADO, retorne lista vazia.")
 
-    # SCA por nível
     criticos: list[str] = Field(description="Lista de CVEs Críticos do SCA. Formato: 'NomeBiblioteca: tipo do problema (CVE-XXXX, CVE-YYYY)'. Se não houver, retorne lista vazia.")
     altos:    list[str] = Field(description="Lista de CVEs Altos do SCA. Mesmo formato. Se não houver, retorne lista vazia.")
     medios:   list[str] = Field(description="Lista de CVEs Médios do SCA. Mesmo formato. Se não houver, retorne lista vazia.")
@@ -61,7 +58,7 @@ def deduplicate_sast(resultado_sast_raw: str) -> str:
     for f in findings:
         check_id = f.get("check_id", "desconhecido")
         caminho  = f.get("path", "desconhecido")
-        
+
         linha = "?"
         if isinstance(f.get("start"), dict) and "line" in f.get("start"):
             linha = f["start"]["line"]
@@ -69,7 +66,7 @@ def deduplicate_sast(resultado_sast_raw: str) -> str:
             linha = f["line"]
         elif isinstance(f.get("location"), dict):
             linha = f["location"].get("start_line", f["location"].get("line", "?"))
-            
+
         chave = (check_id, caminho)
         grupos_iniciais[chave].append(str(linha))
 
@@ -109,9 +106,9 @@ def analisar_vulnerabilidades(tipo, url, ambiente, resultado_sast, resultado_das
     if not CHAVES_API:
         return "Erro", 0, "Erro na análise da IA: Nenhuma chave de API encontrada. Verifique o arquivo .env (GEMINI_KEY_1, GEMINI_KEY_2, GEMINI_KEY_3, GEMINI_KEY_4)."
 
-    e_url = url.startswith("http://") or url.startswith("https://")
+    e_runtime = tipo in ("API", "Aplicação")
 
-    if e_url:
+    if e_runtime:
         sast_final = "IGNORADO (O ativo é uma URL/Runtime, análise de código não aplicável)"
         sca_final  = "IGNORADO (O ativo é uma URL/Runtime, análise de dependências não aplicável)"
     else:

@@ -237,7 +237,7 @@ with st.sidebar:
     st.markdown("---")
 
     with st.container(key="logout_wrapper"):
-        if st.button("➜ Sair", key="btn_logout", width='stretch'):
+        if st.button("➜] Sair", key="btn_logout", width='stretch'):
             logout()
 
 
@@ -540,7 +540,7 @@ elif selecionado == "Ativos":
         st.warning(f"⚠️ Tem certeza que deseja excluir **{ativo_nome}**? Essa ação não pode ser desfeita.")
         col_sim, col_nao = st.columns(2)
         with col_sim:
-            if st.button("✅ Sim, excluir", key=f"btn_confirma_{ativo_id}", width='stretch'):
+            if st.button("Sim, excluir", key=f"btn_confirma_{ativo_id}", width='stretch'):
                 deletar_ativo(usuario_id, ativo_id)
                 registrar_log(usuario_id, nome_usuario,
                     acao="Ativo Deletado",
@@ -552,7 +552,7 @@ elif selecionado == "Ativos":
                 st.success(f"Ativo '{ativo_nome}' excluído com sucesso!")
                 st.rerun()
         with col_nao:
-            if st.button("❌ Cancelar", key=f"btn_cancela_{ativo_id}", width='stretch'):
+            if st.button("Cancelar", key=f"btn_cancela_{ativo_id}", width='stretch'):
                 st.rerun()
 
     ativos = listar_ativos_db(usuario_id)
@@ -639,6 +639,19 @@ elif selecionado == "Relatórios":
 elif selecionado == "Logs":
     st.markdown("<div style='font-size:32px; font-weight:700; margin-bottom:20px; color:var(--text-color);'>Logs de Auditoria</div>", unsafe_allow_html=True)
 
+    @st.dialog("Confirmar limpeza de logs")
+    def _modal_confirmar_limpeza_logs():
+        st.warning("⚠️ Tem certeza que deseja apagar todos os logs? Essa ação não pode ser desfeita.")
+        col_sim, col_nao = st.columns(2)
+        with col_sim:
+            if st.button("Sim, apagar", key="btn_confirma_limpeza_logs", width='stretch'):
+                limpar_logs(usuario_id)
+                st.success("Logs apagados com sucesso!")
+                st.rerun()
+        with col_nao:
+            if st.button("Cancelar", key="btn_cancela_limpeza_logs", width='stretch'):
+                st.rerun()
+
     logs = listar_logs(usuario_id, limite=100)
 
     cores_nivel = {
@@ -657,8 +670,7 @@ elif selecionado == "Logs":
             st.markdown(f"<p style='opacity:0.6; font-size:13px;'>{len(logs)} registro(s)</p>", unsafe_allow_html=True)
         with col_limpar:
             if st.button("🗑️ Limpar logs"):
-                limpar_logs(usuario_id)
-                st.rerun()
+                _modal_confirmar_limpeza_logs()
 
         st.markdown("""
             <div style="display:grid; grid-template-columns:1.5fr 0.8fr 1.5fr 1fr 0.8fr 2fr 1fr;

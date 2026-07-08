@@ -2,6 +2,13 @@ import subprocess
 import json
 import os
 import shutil
+import stat
+
+
+def _forcar_remocao(func, caminho, exc_info):
+    os.chmod(caminho, stat.S_IWRITE)
+    func(caminho)
+
 
 def rodar_trivy(caminho_ou_url):
 
@@ -13,7 +20,7 @@ def rodar_trivy(caminho_ou_url):
             caminho_local = "/tmp/trivy_scan_repo"
 
             if os.path.exists(caminho_local):
-                shutil.rmtree(caminho_local)
+                shutil.rmtree(caminho_local, onerror=_forcar_remocao)
 
             clone = subprocess.run(
                 ["git", "clone", "--depth=1", caminho_ou_url, caminho_local],
@@ -72,4 +79,4 @@ def rodar_trivy(caminho_ou_url):
 
     finally:
         if clonado and os.path.exists(caminho_local):
-            shutil.rmtree(caminho_local)
+            shutil.rmtree(caminho_local, onerror=_forcar_remocao)
