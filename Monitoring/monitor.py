@@ -3,7 +3,8 @@ import sqlite3
 import time
 import os
 from datetime import datetime
-from Database.db import salvar_alerta, listar_ativos_db, atualizar_ativo
+from Database.db import salvar_alerta, listar_ativos_db, atualizar_ativo, registrar_historico_ativo
+from MachineLearning.anomaly_detector import verificar_anomalia_ml
 
 LIMIAR_ANOMALIA = 20
 
@@ -43,34 +44,17 @@ def verificar_disponibilidade(usuario_id, ativo_nome, url):
         return True
 
 
-def verificar_anomalia(usuario_id, ativo_nome, score_atual):
+def verificar_anomalia(usuario_id, ativo_id, ativo_nome, score_atual):
     try:
-        conexao = sqlite3.connect("aspm.db", check_same_thread=False)
-        cursor = conexao.cursor()
+        e_anomalia, detalhe, metodo = verificar_anomalia_ml(usuario_id, ativo_id, ativo_nome, score_atual)
 
-        cursor.execute(
-            """
-            SELECT score FROM ativos
-            WHERE usuario_id = ? AND nome = ?
-            ORDER BY id DESC
-            LIMIT 2
-            """,
-            (usuario_id, ativo_nome)
-        )
-        resultados = cursor.fetchall()
-
-        if len(resultados) < 2:
-            return
-
-        score_anterior = resultados[1][0]
-        diferenca = score_atual - score_anterior
-
-        if diferenca >= LIMIAR_ANOMALIA:
+        if e_anomalia:
+            prefixo = "🧠" if metodo == "machine_learning" else "🟠"
             salvar_alerta(
                 usuario_id=usuario_id,
                 ativo_nome=ativo_nome,
                 tipo="anomalia",
-                mensagem=f"🟠 '{ativo_nome}' teve aumento brusco de score: {score_anterior} → {score_atual} (+{diferenca} pontos) às {datetime.now().strftime('%d/%m/%Y %H:%M')}"
+                mensagem=f"{prefixo} '{ativo_nome}': {detalhe} às {datetime.now().strftime('%d/%m/%Y %H:%M')}"
             )
 
     except Exception as e:
@@ -99,7 +83,7 @@ def _rescan_usuario(usuario_id):
     from Scanners.owaspzap import rodar_zap
     from Scanners.semgrep import rodar_semgrep
     from Scanners.trivy import rodar_trivy
-    from IAs.gemini import analisar_vulnerabilidades
+    from LLMs.gemini import analisar_vulnerabilidades
 
     ativos = listar_ativos_db(usuario_id)
 
@@ -133,7 +117,9 @@ def _rescan_usuario(usuario_id):
 
             atualizar_ativo(usuario_id, nome, url, crit, score_novo, analise_nova)
 
-            verificar_anomalia(usuario_id, nome, score_novo)
+            verificar_anomalia(usuario_id, id_, nome, score_novo)
+
+            registrar_historico_ativo(usuario_id, id_, nome, score_novo)
 
             if e_url:
                 verificar_disponibilidade(usuario_id, nome, url)

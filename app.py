@@ -8,7 +8,7 @@ import re
 from Scanners.owaspzap import rodar_zap
 from Scanners.semgrep import rodar_semgrep
 from Scanners.trivy import rodar_trivy
-from IAs.gemini import analisar_vulnerabilidades
+from LLMs.gemini import analisar_vulnerabilidades
 from Database.db import (
     criar_tabela,
     salvar_ativo,
@@ -482,7 +482,9 @@ elif selecionado == "Análises":
 
     if st.button("🔍 Iniciar Análise"):
         if not url.strip():
-            st.error("❌ URL inválida.")
+            st.error("❌ URL ou Caminho inválido.")
+        elif tipo in ["API", "Aplicação"] and not url.strip().lower().startswith(("http://", "https://")):
+            st.error("❌ URL inválida. Para os tipos 'API' e 'Aplicação', informe uma URL válida iniciando com http:// ou https://")
         else:
             registrar_log(usuario_id, nome_usuario,
                 acao="Scan Iniciado",

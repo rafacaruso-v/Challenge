@@ -60,6 +60,19 @@ def criar_tabela():
     """)
 
     cursor.execute("""
+        CREATE TABLE IF NOT EXISTS historico_ativos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ativo_id INTEGER NOT NULL,
+            usuario_id INTEGER NOT NULL,
+            nome TEXT,
+            score INTEGER,
+            data TEXT,
+            FOREIGN KEY (ativo_id) REFERENCES ativos (id),
+            FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
+        )
+    """)
+
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS configuracoes (
             chave TEXT PRIMARY KEY,
             valor TEXT NOT NULL
@@ -251,7 +264,7 @@ def deletar_ativo(usuario_id, ativo_id):
 
 
 # =====================================
-# HISTÓRICO
+# HISTÓRICO (MÉDIA GERAL - USADO NO GRÁFICO DE EVOLUÇÃO DE RISCO)
 # =====================================
 
 def registrar_historico(usuario_id):
@@ -286,6 +299,31 @@ def listar_historico(usuario_id, minutos=60):
         if (agora - data_ponto).total_seconds() <= minutos * 60:
             filtrados.append((score_medio, data_str))
     return list(reversed(filtrados))
+
+
+# =====================================
+# HISTÓRICO POR ATIVO (USADO NA DETECÇÃO DE ANOMALIAS COM ML)
+# =====================================
+
+def registrar_historico_ativo(usuario_id, ativo_id, nome, score):
+    conexao = conectar()
+    cursor = conexao.cursor()
+    cursor.execute("""
+        INSERT INTO historico_ativos (ativo_id, usuario_id, nome, score, data)
+        VALUES (?, ?, ?, ?, ?)
+    """, (ativo_id, usuario_id, nome, score, datetime.now().strftime("%d/%m/%Y %H:%M:%S")))
+    conexao.commit()
+
+def listar_historico_ativo(usuario_id, ativo_id, limite=50):
+    conexao = conectar()
+    cursor = conexao.cursor()
+    cursor.execute("""
+        SELECT score, data FROM historico_ativos
+        WHERE usuario_id = ? AND ativo_id = ?
+        ORDER BY id ASC
+        LIMIT ?
+    """, (usuario_id, ativo_id, limite))
+    return cursor.fetchall()
 
 
 # =====================================
