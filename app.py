@@ -496,11 +496,21 @@ elif selecionado == "Análises":
             with st.spinner("Executando análise de segurança..."):
                 try:
                     res_sast = rodar_semgrep(url) if tipo == "Repositório"         else ""
-                    res_dast = rodar_zap(url)      if tipo in ["API", "Aplicação"] else ""
+                    res_dast = rodar_zap(url, tipo=tipo) if tipo in ["API", "Aplicação"] else ""
                     res_sca  = rodar_trivy(url)    if tipo == "Repositório"        else ""
 
                     if res_dast == "ERRO_PROXY_ZAP":
                         st.error("❌ Erro ao conectar no OWASP ZAP.")
+                        st.stop()
+                    if res_dast == "ERRO_OPENAPI_NAO_ENCONTRADO":
+                        st.error(
+                            "❌ Não foi possível localizar a especificação OpenAPI/Swagger desta API "
+                            "nos caminhos comuns (/openapi.json, /swagger.json, /v3/api-docs, etc.). "
+                            "Sem essa especificação, a análise de API não pode ser realizada."
+                        )
+                        st.stop()
+                    if res_dast == "ERRO_IMPORT_OPENAPI":
+                        st.error("❌ Erro ao importar a especificação OpenAPI/Swagger encontrada. Verifique se ela está acessível e em formato válido.")
                         st.stop()
                     if isinstance(res_sast, str) and res_sast.startswith("ERRO:"):
                         st.error(f"❌ Erro no Semgrep: {res_sast.replace('ERRO:', '').strip()}")

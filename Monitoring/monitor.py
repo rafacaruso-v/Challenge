@@ -101,10 +101,14 @@ def _rescan_usuario(usuario_id):
 
             res_sast = rodar_semgrep(url) if tipo == "Repositório" else ""
             res_sca  = rodar_trivy(url)   if tipo == "Repositório" else ""
-            res_dast = rodar_zap(url)     if tipo in ["API", "Aplicação"] else ""
+            res_dast = rodar_zap(url, tipo=tipo) if tipo in ["API", "Aplicação"] else ""
 
             if res_dast == "ERRO_PROXY_ZAP":
                 print(f"ZAP indisponível para {nome}, pulando DAST.")
+                res_dast = ""
+
+            if res_dast == "ERRO_OPENAPI_NAO_ENCONTRADO":
+                print(f"Especificação OpenAPI não encontrada para {nome}, pulando DAST neste re-scan.")
                 res_dast = ""
 
             crit, score_novo, analise_nova = analisar_vulnerabilidades(
