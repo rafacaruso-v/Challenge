@@ -241,9 +241,6 @@ with st.sidebar:
             logout()
 
 
-# =====================================
-# HELPERS
-# =====================================
 
 def _label_intervalo(minutos: int) -> str:
     if minutos < 60:
@@ -255,7 +252,7 @@ def _label_intervalo(minutos: int) -> str:
 
 def _render_cards(conteudo: str):
     if "[NIVEL:" not in conteudo:
-        st.markdown(conteudo)
+        st.info(conteudo)
         return
     blocos = re.split(r'\[NIVEL:(\w+)\](.*?)\[/NIVEL\]', conteudo)
     i = 1
@@ -631,11 +628,12 @@ elif selecionado == "Relatórios":
                 st.markdown(rel_c)
                 from gerar_pdf import gerar_pdf_relatorio
                 ativo_dict = {
-                    "nome": dados_ativo[2], "tipo": dados_ativo[3],
-                    "url":  dados_ativo[4], "ambiente": dados_ativo[5],
-                    "criticidade": dados_ativo[6], "score": dados_ativo[7],
-                    "ultima_analise": dados_ativo[9]
-                }
+                "id": dados_ativo[0], "usuario_id": dados_ativo[1],
+                "nome": dados_ativo[2], "tipo": dados_ativo[3],
+                "url":  dados_ativo[4], "ambiente": dados_ativo[5],
+                "criticidade": dados_ativo[6], "score": dados_ativo[7],
+                "ultima_analise": dados_ativo[9]}
+
                 pdf_bytes = gerar_pdf_relatorio(ativo_dict, dados_ativo[8], nome_usuario)
                 st.download_button(
                     label="📄 Baixar Relatório PDF",

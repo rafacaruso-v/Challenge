@@ -10,6 +10,7 @@ from reportlab.platypus import (
     HRFlowable, PageBreak
 )
 from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
+from Compliance.avaliador_plataforma import avaliar_plataforma
 
 ROXO_ESCURO  = colors.HexColor("#1e1b4b")
 ROXO_MEDIO   = colors.HexColor("#7c3aed")
@@ -27,9 +28,44 @@ TEXTO_MEDIO  = colors.HexColor("#374151")
 TEXTO_CLARO  = colors.HexColor("#6b7280")
 BRANCO       = colors.white
 
+CONFORME              = colors.HexColor("#15803d")
+PARCIALMENTE_CONFORME = colors.HexColor("#d97706")
+NAO_CONFORME          = colors.HexColor("#dc2626")
+NAO_AVALIADO          = colors.HexColor("#6b7280")
+
 
 def _cor_criticidade(crit: str):
     return {"Critica": CRITICO, "Alta": ALTO, "Média": MEDIO, "Baixa": BAIXO}.get(crit, TEXTO_CLARO)
+
+
+def _extrair_nomes_vulnerabilidades(texto: str) -> dict:
+    nomes = {"critico": [], "alto": [], "medio": [], "baixo": []}
+    if not texto or "[NIVEL:" not in texto:
+        return nomes
+
+    blocos = re.split(r'\[NIVEL:(\w+)\](.*?)\[/NIVEL\]', texto, flags=re.DOTALL)
+    j = 1
+    while j < len(blocos) - 1:
+        nivel_atual = blocos[j].strip()
+        resto = blocos[j + 2] if (j + 2) < len(blocos) else ""
+        itens = [l[2:].strip() for l in resto.split("\n") if l.strip().startswith("- ")]
+        for item in itens:
+            nome = item.split(":", 1)[0].strip()
+            if nivel_atual in nomes and nome and nome not in nomes[nivel_atual]:
+                nomes[nivel_atual].append(nome)
+        j += 3
+
+    return nomes
+
+
+def _cor_status_compliance(status: str):
+    return {
+        "Conforme": CONFORME,
+        "Parcialmente Conforme": PARCIALMENTE_CONFORME,
+        "Não Conforme": NAO_CONFORME,
+        "Não Aplicável": NAO_AVALIADO,
+        "Não Avaliado": NAO_AVALIADO,
+    }.get(status, NAO_AVALIADO)
 
 
 def _estilos():
@@ -58,9 +94,8 @@ def _linha_hr(story, cor=None):
                              color=cor or BORDA, spaceAfter=8, spaceBefore=4))
 
 
-def _bloco_capa(story, ativo, nome_usuario, estilos):
+def _bloco_capa(story, ativo, nome_usuario, estilos, vulnerabilidades_texto: str = ""):
     W = 170 * mm
-    cor_crit = _cor_criticidade(ativo["criticidade"])
 
     for txt, st in [
         ("ASPM PLATFORM", estilos["titulo"]),
@@ -96,8 +131,8 @@ def _bloco_capa(story, ativo, nome_usuario, estilos):
 
     lbl = ParagraphStyle("lbl2", fontName="Helvetica-Bold", fontSize=8, textColor=TEXTO_CLARO, alignment=TA_CENTER)
     val = ParagraphStyle("val2", fontName="Helvetica", fontSize=9, textColor=TEXTO_ESCURO, alignment=TA_CENTER)
-    cst = ParagraphStyle("cst", fontName="Helvetica-Bold", fontSize=9, textColor=cor_crit, alignment=TA_CENTER)
-    sst = ParagraphStyle("sst", fontName="Helvetica-Bold", fontSize=10, textColor=cor_crit, leading=14, alignment=TA_CENTER)
+    cst = ParagraphStyle("cst", fontName="Helvetica", fontSize=9, textColor=TEXTO_ESCURO, alignment=TA_CENTER)
+    sst = ParagraphStyle("sst", fontName="Helvetica", fontSize=9, textColor=TEXTO_ESCURO, alignment=TA_CENTER)
 
     meta = [
         [Paragraph("Ativo", lbl), Paragraph("Tipo", lbl), Paragraph("Ambiente", lbl),
@@ -120,7 +155,7 @@ def _bloco_capa(story, ativo, nome_usuario, estilos):
         ("BOTTOMPADDING", (0,0), (-1,-1), 6),
     ]))
     story.append(t)
-    story.append(Spacer(1, 6))
+    story.append(Spacer(1, 14))
 
     story.append(Paragraph(
         f'<b>URL / Caminho:</b> {ativo.get("url", "-")}',
@@ -132,11 +167,11 @@ def _bloco_capa(story, ativo, nome_usuario, estilos):
     _linha_hr(story)
 
     escopo_data = [
-        [Paragraph("Periodo da Analise", lbl), Paragraph("Responsavel", lbl),
-         Paragraph("Frameworks de Referencia", lbl)],
+        [Paragraph("Periodo da Análise", lbl), Paragraph("Responsável", lbl),
+         Paragraph("Frameworks de Referência", lbl)],
         [Paragraph(ativo.get("ultima_analise", datetime.now().strftime("%d/%m/%Y %H:%M")), val),
          Paragraph(nome_usuario, val),
-         Paragraph("ISO 27001 | SOC2 Type II | CIS Benchmark", val)],
+         Paragraph("ISO 27001 | SOC2 Type II | ", val)],
     ]
     te = Table(escopo_data, colWidths=[45*mm, 45*mm, 80*mm])
     te.setStyle(TableStyle([
@@ -151,7 +186,7 @@ def _bloco_capa(story, ativo, nome_usuario, estilos):
         ("BOTTOMPADDING", (0,0), (-1,-1), 6),
     ]))
     story.append(te)
-    story.append(Spacer(1, 8))
+    story.append(Spacer(1, 16))
 
     story.append(Paragraph("Ferramentas Utilizadas", estilos["label"]))
     story.append(Spacer(1, 4))
@@ -160,8 +195,8 @@ def _bloco_capa(story, ativo, nome_usuario, estilos):
     fer_data = [[
         Paragraph("<b>Ferramenta</b>", lbl),
         Paragraph("<b>Categoria</b>", lbl),
-        Paragraph("<b>Descricao</b>", lbl),
-        Paragraph("<b>Referencia</b>", lbl),
+        Paragraph("<b>Descricão</b>", lbl),
+        Paragraph("<b>Referência</b>", lbl),
     ]]
     for f in ferramentas:
         fer_data.append([
@@ -183,40 +218,48 @@ def _bloco_capa(story, ativo, nome_usuario, estilos):
         ("BOTTOMPADDING", (0,0), (-1,-1), 5),
     ]))
     story.append(tf)
-    story.append(Spacer(1, 8))
+    story.append(Spacer(1, 16))
 
-    story.append(Paragraph("Criterios SOC2 Avaliados (Trust Service Criteria)", estilos["label"]))
-    story.append(Spacer(1, 4))
+    nomes = _extrair_nomes_vulnerabilidades(vulnerabilidades_texto)
+    if any(nomes.values()):
+        story.append(Paragraph("Resumo de Vulnerabilidades Identificadas", estilos["label"]))
+        story.append(Spacer(1, 4))
 
-    soc2 = [
-        ["CC6 — Logical Access", "Controles de acesso lógico e autenticação"],
-        ["CC7 — System Operations", "Monitoramento de vulnerabilidades e incidentes"],
-        ["CC8 — Change Management", "Gestão de mudanças e deploys seguros"],
-        ["A1 — Availability", "Disponibilidade e resiliência do sistema"],
-        ["C1 — Confidentiality", "Proteção de dados confidenciais"],
-        ["PI1 — Processing Integrity", "Integridade no processamento de resultados de scans e cálculo de risk score"],
-    ]
-    soc2_data = [[Paragraph("<b>Criterio</b>", lbl), Paragraph("<b>Descricao</b>", lbl)]]
-    for s in soc2:
-        soc2_data.append([
-            Paragraph(s[0], ParagraphStyle("s2k", fontName="Helvetica-Bold", fontSize=8, textColor=ROXO_MEDIO, leading=10)),
-            Paragraph(s[1], val),
-        ])
+        labels_niveis = {
+            "critico": "Criticas",
+            "alto":    "Altas",
+            "medio":   "Medias",
+            "baixo":   "Baixas",
+        }
+        estilo_label_nivel = ParagraphStyle("rn_nivel", fontName="Helvetica-Bold", fontSize=8, textColor=ROXO_MEDIO, leading=11, alignment=TA_CENTER)
+        estilo_valor_nivel = ParagraphStyle("rv_nivel", fontName="Helvetica", fontSize=8.5, textColor=TEXTO_MEDIO, leading=12)
+        linhas_resumo = []
+        for nivel in ["critico", "alto", "medio", "baixo"]:
+            if nomes[nivel]:
+                linhas_resumo.append([
+                    Paragraph(labels_niveis[nivel], estilo_label_nivel),
+                    Paragraph(", ".join(nomes[nivel]), estilo_valor_nivel),
+                ])
 
-    ts2 = Table(soc2_data, colWidths=[55*mm, 115*mm])
-    ts2.setStyle(TableStyle([
-        ("BACKGROUND",    (0,0), (-1,0), FUNDO_HEADER),
-        ("TEXTCOLOR",     (0,0), (-1,0), BRANCO),
-        ("ROWBACKGROUNDS",(0,1), (-1,-1), [BRANCO, FUNDO_LINHA]),
-        ("BOX",           (0,0), (-1,-1), 0.5, BORDA),
-        ("GRID",          (0,0), (-1,-1), 0.3, BORDA),
-        ("VALIGN",        (0,0), (-1,-1), "MIDDLE"),
-        ("LEFTPADDING",   (0,0), (-1,-1), 6),
-        ("RIGHTPADDING",  (0,0), (-1,-1), 6),
-        ("TOPPADDING",    (0,0), (-1,-1), 5),
-        ("BOTTOMPADDING", (0,0), (-1,-1), 5),
-    ]))
-    story.append(ts2)
+        tr_resumo = Table(linhas_resumo, colWidths=[25*mm, 145*mm])
+        tr_resumo.setStyle(TableStyle([
+            ("BACKGROUND",    (0,0), (-1,-1), FUNDO_LINHA),
+            ("BOX",           (0,0), (-1,-1), 0.5, BORDA),
+            ("GRID",          (0,0), (-1,-1), 0.3, BORDA),
+            ("VALIGN",        (0,0), (-1,-1), "MIDDLE"),
+            ("LEFTPADDING",   (0,0), (-1,-1), 8),
+            ("RIGHTPADDING",  (0,0), (-1,-1), 8),
+            ("TOPPADDING",    (0,0), (-1,-1), 6),
+            ("BOTTOMPADDING", (0,0), (-1,-1), 6),
+        ]))
+        story.append(tr_resumo)
+        story.append(Spacer(1, 4))
+        story.append(Paragraph(
+            "<i>Descrição detalhada de cada item disponível na seção 2 deste relatório.</i>",
+            ParagraphStyle("nota_resumo", fontName="Helvetica-Oblique", fontSize=7, textColor=TEXTO_CLARO, leading=9)
+        ))
+    else:
+        story.append(Paragraph("✅ Nenhuma vulnerabilidade identificada nesta análise.", estilos["corpo"]))
 
 
 def _ferramentas_por_tipo(tipo: str) -> list:
@@ -354,7 +397,7 @@ def _secao_relatorio(story, relatorio: str, estilos):
         story.append(f)
 
 
-def _secao_declaracao(story, nome_usuario: str, estilos):
+def _secao_declaracao(story, nome_usuario: str, estilos, compliance: dict):
     story.append(PageBreak())
     story.append(Paragraph("4. Declaração de Conformidade", estilos["secao"]))
     _linha_hr(story)
@@ -364,19 +407,58 @@ def _secao_declaracao(story, nome_usuario: str, estilos):
 
     story.append(Paragraph(
         "Este relatório foi gerado pela plataforma ASPM e documenta os resultados da analise "
-        "de seguranca realizada sobre o ativo descrito na secao 1. As analises foram conduzidas "
-        "com ferramentas reconhecidas pelo mercado e mapeadas para os principais frameworks de "
-        "seguranca (ISO 27001, SOC2 Type II, CIS Benchmark).",
+        "de seguranca realizada sobre o ativo descrito na secao 1. Os status de conformidade "
+        "abaixo sao calculados automaticamente a partir dos achados reais dos scanners "
+        "(SAST, DAST, SCA) e do historico de monitoramento deste ativo especifico.",
         val
     ))
-    story.append(Spacer(1, 8))
+    story.append(Spacer(1, 20))
+    gv = compliance["mitigacao_vulnerabilidades"]
+    al = compliance["acesso_logico"]
+    rt = compliance["rastreabilidade"]
+    ar = compliance["avaliacao_riscos"]
+
+    story.append(Paragraph("Critérios SOC2 Avaliados (Trust Service Criteria)", estilos["label"]))
+    story.append(Spacer(1, 4))
+
+    soc2 = [
+        ["CC6 — Logical Access", "Controles de acesso lógico e físico da plataforma (MFA, RBAC)", al["status"], al["detalhe"]],
+        ["CC7 — Vulnerability Mitigation", "Descoberta, priorização e monitoramento de vulnerabilidades (SAST/DAST/SCA)", gv["status"], gv["detalhe"]],
+        ["CC6 & CC8 — Traceability", "Audit trails e alertas de incidentes de segurança", rt["status"], rt["detalhe"]],
+        ["CC3 — Risk Assessment", "Identificação, análise e classificação de riscos dos ativos", ar["status"], ar["detalhe"]],
+    ]
+    soc2_data = [[Paragraph("<b>Critério</b>", lbl), Paragraph("<b>Descrição</b>", lbl),
+                  Paragraph("<b>Status</b>", lbl), Paragraph("<b>Evidência</b>", lbl)]]
+    for s in soc2:
+        cor_status = _cor_status_compliance(s[2])
+        soc2_data.append([
+            Paragraph(s[0], ParagraphStyle("s2k", fontName="Helvetica-Bold", fontSize=8, textColor=ROXO_MEDIO, leading=10)),
+            Paragraph(s[1], val),
+            Paragraph(s[2], ParagraphStyle("s2st", fontName="Helvetica-Bold", fontSize=8, textColor=cor_status, leading=10)),
+            Paragraph(s[3], ParagraphStyle("s2ev", fontName="Helvetica", fontSize=7.5, textColor=TEXTO_CLARO, leading=9)),
+        ])
+
+    ts2 = Table(soc2_data, colWidths=[38*mm, 45*mm, 27*mm, 60*mm])
+    ts2.setStyle(TableStyle([
+        ("BACKGROUND",    (0,0), (-1,0), FUNDO_HEADER),
+        ("TEXTCOLOR",     (0,0), (-1,0), BRANCO),
+        ("ROWBACKGROUNDS",(0,1), (-1,-1), [BRANCO, FUNDO_LINHA]),
+        ("BOX",           (0,0), (-1,-1), 0.5, BORDA),
+        ("GRID",          (0,0), (-1,-1), 0.3, BORDA),
+        ("VALIGN",        (0,0), (-1,-1), "MIDDLE"),
+        ("LEFTPADDING",   (0,0), (-1,-1), 6),
+        ("RIGHTPADDING",  (0,0), (-1,-1), 6),
+        ("TOPPADDING",    (0,0), (-1,-1), 5),
+        ("BOTTOMPADDING", (0,0), (-1,-1), 5),
+    ]))
+    story.append(ts2)
+    story.append(Spacer(1, 12))
 
     iso_controles = [
-        ["A.8.8",  "Gestão de Vulnerabilidades Tecnicas", "Cobertura por SAST, DAST e SCA"],
-        ["A.8.25", "Ciclo de Vida de Desenvolvimento Seguro", "Pipeline CI/CD com verificações de segurança"],
-        ["A.8.29", "Testes de Segurança no Desenvolvimento", "Testes automatizados a cada commit"],
-        ["A.5.23", "Segurança no Uso de Serviços em Nuvem", "Monitoramento continuo de ativos"],
-        ["A.8.16", "Monitoramento de Atividades", "Alertas e histórico de risk score"],
+        ["A.5.15", "Controle de Acesso", al["status"], al["detalhe"]],
+        ["A.8.8",  "Gestão de Vulnerabilidades Tecnicas", gv["status"], gv["detalhe"]],
+        ["A.8.15", "Registro de Eventos (Logging) e Auditoria", rt["status"], rt["detalhe"]],
+        ["Cláusula 6.1.2", "Avaliação de Riscos de Segurança da Informação", ar["status"], ar["detalhe"]],
     ]
 
     story.append(Paragraph("Controles ISO 27001 Cobertos", estilos["label"]))
@@ -384,17 +466,20 @@ def _secao_declaracao(story, nome_usuario: str, estilos):
 
     iso_data = [[
         Paragraph("<b>Controle</b>", lbl),
-        Paragraph("<b>Descricao</b>", lbl),
-        Paragraph("<b>Evidencia na Plataforma</b>", lbl),
+        Paragraph("<b>Descrição</b>", lbl),
+        Paragraph("<b>Status</b>", lbl),
+        Paragraph("<b>Evidência na Plataforma</b>", lbl),
     ]]
     for row in iso_controles:
+        cor_status = _cor_status_compliance(row[2])
         iso_data.append([
             Paragraph(row[0], ParagraphStyle("isk", fontName="Helvetica-Bold", fontSize=8, textColor=ROXO_MEDIO, leading=10)),
             Paragraph(row[1], val),
-            Paragraph(row[2], val),
+            Paragraph(row[2], ParagraphStyle("isost", fontName="Helvetica-Bold", fontSize=8, textColor=cor_status, leading=10)),
+            Paragraph(row[3], ParagraphStyle("isoev", fontName="Helvetica", fontSize=7.5, textColor=TEXTO_CLARO, leading=9)),
         ])
 
-    ti = Table(iso_data, colWidths=[20*mm, 75*mm, 75*mm])
+    ti = Table(iso_data, colWidths=[20*mm, 45*mm, 27*mm, 78*mm])
     ti.setStyle(TableStyle([
         ("BACKGROUND",    (0,0), (-1,0), FUNDO_HEADER),
         ("TEXTCOLOR",     (0,0), (-1,0), BRANCO),
@@ -408,29 +493,13 @@ def _secao_declaracao(story, nome_usuario: str, estilos):
         ("BOTTOMPADDING", (0,0), (-1,-1), 5),
     ]))
     story.append(ti)
-    story.append(Spacer(1, 12))
-
-    story.append(Paragraph("Responsável pela Análise", estilos["label"]))
     story.append(Spacer(1, 4))
-    assin_data = [
-        [Paragraph("Nome", lbl), Paragraph("Data", lbl), Paragraph("Plataforma", lbl)],
-        [Paragraph(nome_usuario, val),
-         Paragraph(datetime.now().strftime("%d/%m/%Y"), val),
-         Paragraph("ASPM Platform", val)],
-    ]
-    ta = Table(assin_data, colWidths=[60*mm, 50*mm, 60*mm])
-    ta.setStyle(TableStyle([
-        ("BACKGROUND",    (0,0), (-1,0), FUNDO_LINHA),
-        ("BACKGROUND",    (0,1), (-1,1), BRANCO),
-        ("BOX",           (0,0), (-1,-1), 0.5, BORDA),
-        ("GRID",          (0,0), (-1,-1), 0.3, BORDA),
-        ("VALIGN",        (0,0), (-1,-1), "MIDDLE"),
-        ("LEFTPADDING",   (0,0), (-1,-1), 8),
-        ("RIGHTPADDING",  (0,0), (-1,-1), 8),
-        ("TOPPADDING",    (0,0), (-1,-1), 8),
-        ("BOTTOMPADDING", (0,0), (-1,-1), 8),
-    ]))
-    story.append(ta)
+    story.append(Paragraph(
+        "<i>Nota: Os critérios SOC2 e ISO 27001 acima avaliam a postura de compliance da "
+        "plataforma ASPM como um todo (autenticação, cobertura de scanners, auditoria e "
+        "avaliação de riscos), não uma característica exclusiva deste ativo específico.</i>",
+        ParagraphStyle("nota_plataforma", fontName="Helvetica-Oblique", fontSize=7, textColor=TEXTO_CLARO, leading=9)
+    ))
 
 
 def _rodape(canvas_obj, doc):
@@ -457,8 +526,6 @@ def gerar_pdf_relatorio(ativo: dict, analise_completa: str, nome_usuario: str = 
     estilos = _estilos()
     story   = []
 
-    _bloco_capa(story, ativo, nome_usuario, estilos)
-
     sast_dast = sca = relatorio = ""
     if "---VULNS_SAST_DAST---" in analise_completa:
         sast_dast = analise_completa.split("---VULNS_SAST_DAST---")[1].split("---VULNS_SCA---")[0].strip()
@@ -476,6 +543,10 @@ def gerar_pdf_relatorio(ativo: dict, analise_completa: str, nome_usuario: str = 
     if "---RELATORIO---" in analise_completa:
         relatorio = analise_completa.split("---RELATORIO---")[1].strip()
 
+    compliance = avaliar_plataforma(ativo.get("usuario_id"))
+
+    _bloco_capa(story, ativo, nome_usuario, estilos, sast_dast + "\n" + sca)
+
     story.append(PageBreak())
     _secao_vulnerabilidades(story, sast_dast + "\n" + sca, estilos)
 
@@ -483,7 +554,7 @@ def gerar_pdf_relatorio(ativo: dict, analise_completa: str, nome_usuario: str = 
         story.append(PageBreak())
         _secao_relatorio(story, relatorio, estilos)
 
-    _secao_declaracao(story, nome_usuario, estilos)
+    _secao_declaracao(story, nome_usuario, estilos, compliance)
 
     doc.build(story, onFirstPage=_rodape, onLaterPages=_rodape)
     buffer.seek(0)

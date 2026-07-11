@@ -151,6 +151,15 @@ def analisar_vulnerabilidades(tipo, url, ambiente, resultado_sast, resultado_das
 
     dast_final = resultado_dast if (resultado_dast and resultado_dast != "[]") else "LIMPO"
 
+    ferramentas_utilizadas = []
+    if not sast_final.startswith("IGNORADO"):
+        ferramentas_utilizadas.append("Semgrep (SAST)")
+    if not sca_final.startswith("IGNORADO"):
+        ferramentas_utilizadas.append("Trivy (SCA)")
+    if not dast_final.startswith("IGNORADO"):
+        ferramentas_utilizadas.append("OWASP ZAP (DAST)")
+    ferramentas_str = ", ".join(ferramentas_utilizadas) if ferramentas_utilizadas else "Nenhuma"
+
     sast_final = _sanitizar_texto(sast_final)
     sca_final  = _sanitizar_texto(sca_final)
     dast_final = _sanitizar_texto(dast_final)
@@ -284,6 +293,11 @@ REGRA DE CÁLCULO DE CRITICIDADE E SCORE (CONDIÇÕES)
    (CRITICAL, HIGH, MEDIUM, LOW), nunca infira pelo nome do ataque descrito no CVE.
 
 ==================================================
+FERRAMENTAS EFETIVAMENTE UTILIZADAS NESTA ANÁLISE
+==================================================
+{ferramentas_str}
+
+==================================================
 REGRAS DE NEGÓCIO
 ==================================================
 1. Se SAST estiver como 'IGNORADO', todos os campos criticos_sast, altos_sast, medios_sast,
@@ -334,6 +348,13 @@ REGRAS DE NEGÓCIO
 11. PROIBIDO classificar tudo como Crítico. Avalie cada finding individualmente pelo seu impacto
     real. Exemplo: um CVE que causa apenas DoS pertence ao campo 'medios', nunca a 'criticos',
     mesmo que o score geral do ativo seja 95.
+
+12. No campo 'recomendacoes' (Plano de Ação), cite SOMENTE as ferramentas listadas na seção
+    "FERRAMENTAS EFETIVAMENTE UTILIZADAS NESTA ANÁLISE" acima. NUNCA mencione, sugira ou faça
+    referência a ferramentas que não constam nessa lista (ex: não cite Semgrep se o ativo for
+    uma API/Aplicação, não cite OWASP ZAP se o ativo for um Repositório). Se uma recomendação
+    genérica de segurança não estiver ligada a nenhuma das ferramentas usadas, descreva a ação
+    sem atribuí-la a uma ferramenta específica.
 
 CONTEXTO: Ambiente de {ambiente}.
 Retorne SOMENTE JSON seguindo estritamente o schema fornecido.
