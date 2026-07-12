@@ -1,4 +1,6 @@
 import sqlite3
+import bcrypt
+import os
 from datetime import datetime
 
 def conectar():
@@ -104,6 +106,10 @@ def criar_tabela():
         "ALTER TABLE logs ADD COLUMN aplicacao TEXT",
         "ALTER TABLE logs ADD COLUMN ambiente TEXT",
         "ALTER TABLE logs ADD COLUMN origem TEXT",
+        "ALTER TABLE usuarios ADD COLUMN role TEXT DEFAULT 'usuario'",
+        "ALTER TABLE usuarios ADD COLUMN mfa_code TEXT",
+        "ALTER TABLE usuarios ADD COLUMN mfa_expira TEXT",
+        "ALTER TABLE usuarios ADD COLUMN mfa_tentativas INTEGER DEFAULT 0",
     ]:
         try:
             cursor.execute(sql)
@@ -116,11 +122,31 @@ def criar_tabela():
     """)
 
     conexao.commit()
+    criar_admin_padrao()
 
 
-# =====================================
-# CONFIGURAÇÕES
-# =====================================
+def criar_admin_padrao():
+    admin_username = os.environ.get("ADMIN_USERNAME")
+    admin_email    = os.environ.get("ADMIN_EMAIL")
+    admin_senha    = os.environ.get("ADMIN_PASSWORD")
+
+    if not admin_username or not admin_email or not admin_senha:
+        return
+
+    conexao = conectar()
+    cursor = conexao.cursor()
+    cursor.execute("SELECT id FROM usuarios WHERE username = ?", (admin_username,))
+    if cursor.fetchone():
+        return
+
+    senha_hash = bcrypt.hashpw(admin_senha.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+    cursor.execute("""
+        INSERT INTO usuarios (username, email, senha_hash, nome, criado_em, role)
+        VALUES (?, ?, ?, ?, ?, 'admin')
+    """, (admin_username, admin_email, senha_hash, "Administrador",
+          datetime.now().strftime("%d/%m/%Y %H:%M")))
+    conexao.commit()
+
 
 def get_intervalo_rescan() -> int:
     conexao = conectar()
@@ -138,10 +164,6 @@ def set_intervalo_rescan(minutos: int):
     )
     conexao.commit()
 
-
-# =====================================
-# LOGS (AUDIT TRAIL)
-# =====================================
 
 def registrar_log(
     usuario_id: int,
@@ -177,24 +199,36 @@ def listar_logs(usuario_id: int, limite: int = 100):
     """, (usuario_id, limite))
     return cursor.fetchall()
 
-def limpar_logs(usuario_id: int):
+def listar_logs_todos(limite: int = 200):
     conexao = conectar()
     cursor = conexao.cursor()
-    cursor.execute("DELETE FROM logs WHERE usuario_id = ?", (usuario_id,))
-    conexao.commit()
+    cursor.execute("""
+        SELECT id, data, nivel, acao, aplicacao, ambiente, detalhe, origem, usuario_nome
+        FROM logs
+        ORDER BY id DESC
+        LIMIT ?
+    """, (limite,))
+    return cursor.fetchall()
 
+def contar_usuarios() -> int:
+    conexao = conectar()
+    cursor = conexao.cursor()
+    cursor.execute("SELECT COUNT(*) FROM usuarios")
+    return cursor.fetchone()[0]
 
-# =====================================
-# USUÁRIOS
-# =====================================
+def contar_admins() -> int:
+    conexao = conectar()
+    cursor = conexao.cursor()
+    cursor.execute("SELECT COUNT(*) FROM usuarios WHERE role = 'admin'")
+    return cursor.fetchone()[0]
 
 def criar_usuario(username, email, senha_hash, nome):
     conexao = conectar()
     cursor = conexao.cursor()
     try:
         cursor.execute("""
-            INSERT INTO usuarios (username, email, senha_hash, nome, criado_em)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO usuarios (username, email, senha_hash, nome, criado_em, role)
+            VALUES (?, ?, ?, ?, ?, 'usuario')
         """, (username, email, senha_hash, nome, datetime.now().strftime("%d/%m/%Y %H:%M")))
         conexao.commit()
         return cursor.lastrowid
@@ -205,7 +239,7 @@ def buscar_usuario_por_username(username):
     conexao = conectar()
     cursor = conexao.cursor()
     cursor.execute(
-        "SELECT id, username, email, senha_hash, nome FROM usuarios WHERE username = ?",
+        "SELECT id, username, email, senha_hash, nome, role FROM usuarios WHERE username = ?",
         (username,)
     )
     return cursor.fetchone()
@@ -214,15 +248,92 @@ def buscar_usuario_por_id(usuario_id):
     conexao = conectar()
     cursor = conexao.cursor()
     cursor.execute(
-        "SELECT id, username, email, senha_hash, nome FROM usuarios WHERE id = ?",
+        "SELECT id, username, email, senha_hash, nome, role FROM usuarios WHERE id = ?",
         (usuario_id,)
     )
     return cursor.fetchone()
 
+def listar_usuarios():
+    conexao = conectar()
+    cursor = conexao.cursor()
+    cursor.execute("""
+        SELECT id, username, email, nome, role, criado_em
+        FROM usuarios
+        ORDER BY id ASC
+    """)
+    return cursor.fetchall()
 
-# =====================================
-# ATIVOS
-# =====================================
+def atualizar_role_usuario(usuario_id: int, novo_role: str):
+    if novo_role not in ("admin", "usuario"):
+        raise ValueError("role inválida: deve ser 'admin' ou 'usuario'")
+    conexao = conectar()
+    cursor = conexao.cursor()
+    cursor.execute("UPDATE usuarios SET role = ? WHERE id = ?", (novo_role, usuario_id))
+    conexao.commit()
+
+
+MFA_MAX_TENTATIVAS = 3
+
+def salvar_codigo_mfa(usuario_id: int, codigo: str, expira_em: datetime):
+    conexao = conectar()
+    cursor = conexao.cursor()
+    cursor.execute("""
+        UPDATE usuarios
+        SET mfa_code = ?, mfa_expira = ?, mfa_tentativas = 0
+        WHERE id = ?
+    """, (codigo, expira_em.strftime("%d/%m/%Y %H:%M:%S"), usuario_id))
+    conexao.commit()
+
+def limpar_codigo_mfa(usuario_id: int):
+    conexao = conectar()
+    cursor = conexao.cursor()
+    cursor.execute("""
+        UPDATE usuarios
+        SET mfa_code = NULL, mfa_expira = NULL, mfa_tentativas = 0
+        WHERE id = ?
+    """, (usuario_id,))
+    conexao.commit()
+
+def validar_codigo_mfa(usuario_id: int, codigo_digitado: str):
+    """Retorna (sucesso: bool, mensagem: str)."""
+    conexao = conectar()
+    cursor = conexao.cursor()
+    cursor.execute(
+        "SELECT mfa_code, mfa_expira, mfa_tentativas FROM usuarios WHERE id = ?",
+        (usuario_id,)
+    )
+    resultado = cursor.fetchone()
+    if resultado is None:
+        return False, "Usuário não encontrado."
+
+    codigo_salvo, expira_str, tentativas = resultado
+    tentativas = tentativas or 0
+
+    if not codigo_salvo or not expira_str:
+        return False, "Nenhum código pendente. Faça login novamente."
+
+    if tentativas >= MFA_MAX_TENTATIVAS:
+        limpar_codigo_mfa(usuario_id)
+        return False, "Número máximo de tentativas excedido. Faça login novamente."
+
+    expira_em = datetime.strptime(expira_str, "%d/%m/%Y %H:%M:%S")
+    if datetime.now() > expira_em:
+        limpar_codigo_mfa(usuario_id)
+        return False, "Código expirado. Faça login novamente."
+
+    if codigo_digitado != codigo_salvo:
+        cursor.execute(
+            "UPDATE usuarios SET mfa_tentativas = mfa_tentativas + 1 WHERE id = ?",
+            (usuario_id,)
+        )
+        conexao.commit()
+        restantes = MFA_MAX_TENTATIVAS - (tentativas + 1)
+        return False, f"Código incorreto. Tentativas restantes: {restantes}"
+
+    limpar_codigo_mfa(usuario_id)
+    return True, "Código validado com sucesso."
+
+
 
 def salvar_ativo(usuario_id, nome, tipo, url, ambiente, criticidade, score, analise):
     conexao = conectar()
@@ -252,6 +363,17 @@ def listar_ativos_db(usuario_id):
     cursor.execute("SELECT * FROM ativos WHERE usuario_id = ?", (usuario_id,))
     return cursor.fetchall()
 
+def listar_ativos_todos():
+    conexao = conectar()
+    cursor = conexao.cursor()
+    cursor.execute("""
+        SELECT ativos.*, usuarios.username
+        FROM ativos
+        JOIN usuarios ON ativos.usuario_id = usuarios.id
+        ORDER BY ativos.id DESC
+    """)
+    return cursor.fetchall()
+
 def deletar_ativo(usuario_id, ativo_id):
     conexao = conectar()
     cursor = conexao.cursor()
@@ -262,10 +384,6 @@ def deletar_ativo(usuario_id, ativo_id):
         cursor.execute("DELETE FROM alertas WHERE ativo_nome = ? AND usuario_id = ?", (resultado[0], usuario_id))
     conexao.commit()
 
-
-# =====================================
-# HISTÓRICO (MÉDIA GERAL - USADO NO GRÁFICO DE EVOLUÇÃO DE RISCO)
-# =====================================
 
 def registrar_historico(usuario_id):
     conexao = conectar()
@@ -301,10 +419,6 @@ def listar_historico(usuario_id, minutos=60):
     return list(reversed(filtrados))
 
 
-# =====================================
-# HISTÓRICO POR ATIVO (USADO NA DETECÇÃO DE ANOMALIAS COM ML)
-# =====================================
-
 def registrar_historico_ativo(usuario_id, ativo_id, nome, score):
     conexao = conectar()
     cursor = conexao.cursor()
@@ -325,10 +439,6 @@ def listar_historico_ativo(usuario_id, ativo_id, limite=50):
     """, (usuario_id, ativo_id, limite))
     return cursor.fetchall()
 
-
-# =====================================
-# ALERTAS
-# =====================================
 
 def salvar_alerta(usuario_id, ativo_nome, tipo, mensagem):
     conexao = conectar()

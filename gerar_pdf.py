@@ -10,7 +10,7 @@ from reportlab.platypus import (
     HRFlowable, PageBreak
 )
 from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
-from Compliance.avaliador_plataforma import avaliar_plataforma
+from Compliance.avaliador import avaliar_plataforma
 
 ROXO_ESCURO  = colors.HexColor("#1e1b4b")
 ROXO_MEDIO   = colors.HexColor("#7c3aed")
@@ -406,10 +406,12 @@ def _secao_declaracao(story, nome_usuario: str, estilos, compliance: dict):
     val = ParagraphStyle("val4", fontName="Helvetica", fontSize=9, textColor=TEXTO_MEDIO, leading=12)
 
     story.append(Paragraph(
-        "Este relatório foi gerado pela plataforma ASPM e documenta os resultados da analise "
-        "de seguranca realizada sobre o ativo descrito na secao 1. Os status de conformidade "
-        "abaixo sao calculados automaticamente a partir dos achados reais dos scanners "
-        "(SAST, DAST, SCA) e do historico de monitoramento deste ativo especifico.",
+        "Este relatório foi gerado pela plataforma ASPM e documenta os resultados da análise "
+    "de segurança realizada sobre o ativo descrito na seção 1. Os status de conformidade "
+    "abaixo avaliam a postura de segurança da plataforma ASPM como um todo — incluindo "
+    "autenticação, cobertura de scanners, auditoria e avaliação de riscos — e são "
+    "calculados automaticamente a partir dos dados reais registrados na plataforma, "
+    "não sendo uma característica exclusiva deste ativo específico.",
         val
     ))
     story.append(Spacer(1, 20))

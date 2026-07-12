@@ -5,6 +5,7 @@ import hmac
 import hashlib
 import base64
 import re
+import secrets
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
@@ -16,10 +17,17 @@ from Database.db import (
     buscar_usuario_por_username,
     buscar_usuario_por_id,
     registrar_log,
+    salvar_codigo_mfa,
+    validar_codigo_mfa,
+    limpar_codigo_mfa,
 )
+from Auth.email_service import enviar_codigo_mfa
 
 COOKIE_NAME        = "aspm_session"
 COOKIE_EXPIRY_DAYS = 7
+
+MFA_CODIGO_TAMANHO   = 6
+MFA_EXPIRACAO_MINUTOS = 10
 
 SESSION_SECRET = (
     os.environ.get("SESSION_SECRET")
@@ -137,34 +145,127 @@ def cadastrar_usuario(username: str, email: str, senha: str, nome: str):
     )
     return True, "Cadastro realizado com sucesso! Faça login para continuar."
 
+
+# =====================================
+# LOGIN - ETAPA 1: usuário e senha
+# =====================================
+
+def _gerar_codigo_mfa() -> str:
+    return "".join(str(secrets.randbelow(10)) for _ in range(MFA_CODIGO_TAMANHO))
+
+def _disparar_mfa(usuario_id: int, username: str, email: str, nome: str):
+    codigo = _gerar_codigo_mfa()
+    expira = datetime.now() + timedelta(minutes=MFA_EXPIRACAO_MINUTOS)
+    salvar_codigo_mfa(usuario_id, codigo, expira)
+    enviar_codigo_mfa(email, codigo)
+
+    st.session_state["_mfa_usuario_id"] = usuario_id
+    st.session_state["_mfa_username"]   = username
+    st.session_state["_mfa_email"]      = email
+    st.session_state["_mfa_nome"]       = nome
+
 def autenticar(username: str, senha: str):
+    """Etapa 1: valida usuário/senha e dispara o código MFA por e-mail."""
     usuario = buscar_usuario_por_username(username)
     if usuario is None:
         return False, "Usuário ou senha inválidos."
-    usuario_id, db_username, email, senha_hash, nome = usuario
+    usuario_id, db_username, email, senha_hash, nome, role = usuario
     if not verificar_senha(senha, senha_hash):
         return False, "Usuário ou senha inválidos."
 
-    token  = _gerar_token_sessao(usuario_id, db_username)
+    try:
+        _disparar_mfa(usuario_id, db_username, email, nome)
+    except RuntimeError as e:
+        return False, f"Não foi possível enviar o código de verificação: {e}"
+
+    registrar_log(
+        usuario_id, nome or db_username,
+        acao="Login - Senha Validada",
+        detalhe=f"Código de verificação enviado para {db_username}",
+        nivel="INFORMATIVO",
+        aplicacao="ASPM Platform",
+        ambiente="Todos",
+        origem="Auth Service"
+    )
+    return True, f"Código de verificação enviado para o e-mail cadastrado."
+
+
+# =====================================
+# LOGIN - ETAPA 2: código MFA
+# =====================================
+
+def mfa_pendente() -> bool:
+    return st.session_state.get("_mfa_usuario_id") is not None
+
+def mfa_pendente_username():
+    return st.session_state.get("_mfa_username")
+
+def cancelar_mfa():
+    usuario_id = st.session_state.get("_mfa_usuario_id")
+    if usuario_id:
+        limpar_codigo_mfa(usuario_id)
+    for chave in ("_mfa_usuario_id", "_mfa_username", "_mfa_email", "_mfa_nome"):
+        st.session_state.pop(chave, None)
+
+def reenviar_mfa():
+    usuario_id = st.session_state.get("_mfa_usuario_id")
+    username   = st.session_state.get("_mfa_username")
+    email      = st.session_state.get("_mfa_email")
+    nome       = st.session_state.get("_mfa_nome")
+    if not usuario_id:
+        return False, "Sessão de verificação expirada. Faça login novamente."
+    try:
+        _disparar_mfa(usuario_id, username, email, nome)
+    except RuntimeError as e:
+        return False, f"Não foi possível reenviar o código: {e}"
+    return True, "Novo código enviado para o seu e-mail."
+
+def confirmar_mfa(codigo_digitado: str):
+    """Etapa 2: valida o código informado e, se correto, completa o login."""
+    usuario_id = st.session_state.get("_mfa_usuario_id")
+    username   = st.session_state.get("_mfa_username")
+    nome       = st.session_state.get("_mfa_nome")
+
+    if not usuario_id:
+        return False, "Sessão de verificação expirada. Faça login novamente."
+
+    if not codigo_digitado or not codigo_digitado.isdigit():
+        return False, "Informe o código de 6 dígitos recebido por e-mail."
+
+    sucesso, mensagem = validar_codigo_mfa(usuario_id, codigo_digitado)
+    if not sucesso:
+        if "Faça login novamente" in mensagem:
+            cancelar_mfa()
+        return False, mensagem
+
+    usuario_atualizado = buscar_usuario_por_id(usuario_id)
+    role = usuario_atualizado[5] if usuario_atualizado else "usuario"
+
+    token  = _gerar_token_sessao(usuario_id, username)
     expira = datetime.now(timezone.utc) + timedelta(days=COOKIE_EXPIRY_DAYS)
 
     st.session_state.pop("_cookie_delete_pending", None)
     st.session_state["_cookie_pending"] = (token, expira)
 
     st.session_state["usuario_id"] = usuario_id
-    st.session_state["username"]   = db_username
+    st.session_state["username"]   = username
     st.session_state["nome"]       = nome
+    st.session_state["role"]       = role
+
+    for chave in ("_mfa_usuario_id", "_mfa_username", "_mfa_email", "_mfa_nome"):
+        st.session_state.pop(chave, None)
 
     registrar_log(
-        usuario_id, nome or db_username,
+        usuario_id, nome or username,
         acao="Usuário Autenticado",
-        detalhe=f"Login realizado com sucesso: {db_username}",
+        detalhe=f"Login realizado com sucesso (MFA): {username}",
         nivel="INFORMATIVO",
         aplicacao="ASPM Platform",
         ambiente="Todos",
         origem="Auth Service"
     )
     return True, "Login realizado com sucesso!"
+
 
 def logout():
     usuario_id = st.session_state.get("usuario_id")
@@ -194,6 +295,7 @@ def usuario_logado():
             "usuario_id": st.session_state["usuario_id"],
             "username":   st.session_state["username"],
             "nome":       st.session_state["nome"],
+            "role":       st.session_state.get("role", "usuario"),
         }
 
     token = st.context.cookies.get(COOKIE_NAME)
@@ -208,9 +310,10 @@ def usuario_logado():
     if usuario is None:
         return None
 
-    usuario_id, db_username, email, senha_hash, nome = usuario
+    usuario_id, db_username, email, senha_hash, nome, role = usuario
     st.session_state["usuario_id"] = usuario_id
     st.session_state["username"]   = db_username
     st.session_state["nome"]       = nome
+    st.session_state["role"]       = role
 
-    return {"usuario_id": usuario_id, "username": db_username, "nome": nome}
+    return {"usuario_id": usuario_id, "username": db_username, "nome": nome, "role": role}

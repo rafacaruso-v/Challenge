@@ -1,20 +1,16 @@
 from Database.db import listar_ativos_db, listar_logs
-
-# =====================================
-# ESTADO REAL DE IMPLEMENTAÇÃO — AUTENTICAÇÃO DA PLATAFORMA
-# =====================================
-# Atualize estas constantes quando MFA e/ou RBAC forem implementados em
-# Auth/auth.py. O critério de Acesso Lógico (CC6) reflete esse estado
-# automaticamente assim que forem alteradas para True.
-MFA_IMPLEMENTADO  = False
-RBAC_IMPLEMENTADO = False
+import Auth.auth as auth_module
+import Database.db as db_module
 
 
 def avaliar_acesso_logico():
+    mfa_implementado  = hasattr(auth_module, "confirmar_mfa") and hasattr(auth_module, "mfa_pendente")
+    rbac_implementado = hasattr(db_module, "atualizar_role_usuario") and hasattr(db_module, "contar_admins")
+
     faltando = []
-    if not MFA_IMPLEMENTADO:
+    if not mfa_implementado:
         faltando.append("autenticação multifator (MFA)")
-    if not RBAC_IMPLEMENTADO:
+    if not rbac_implementado:
         faltando.append("controle de acesso baseado em função (RBAC)")
 
     if not faltando:

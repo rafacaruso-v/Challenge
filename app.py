@@ -1,3 +1,6 @@
+from dotenv import load_dotenv
+load_dotenv()
+
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -21,7 +24,11 @@ from Database.db import (
     set_intervalo_rescan,
     registrar_log,
     listar_logs,
-    limpar_logs,
+    listar_usuarios,
+    atualizar_role_usuario,
+    contar_admins,
+    listar_logs_todos,
+    listar_ativos_todos,
 )
 from Monitoring.scheduler import iniciar_scheduler, reiniciar_scheduler
 from Auth.auth import (
@@ -30,6 +37,11 @@ from Auth.auth import (
     cadastrar_usuario,
     logout,
     render_cookie_manager,
+    mfa_pendente,
+    mfa_pendente_username,
+    confirmar_mfa,
+    reenviar_mfa,
+    cancelar_mfa,
 )
 
 estilo_cursor = """
@@ -54,6 +66,14 @@ st.set_page_config(
 
 criar_tabela()
 render_cookie_manager()
+
+CORES_NIVEL = {
+    "CRÍTICO":     ("#ff4b4b", "#ff4b4b22"),
+    "ALTO":        ("#ff8c00", "#ff8c0022"),
+    "MÉDIO":       ("#ffd700", "#ffd70022"),
+    "BAIXO":       ("#00c853", "#00c85322"),
+    "INFORMATIVO": ("#a855f7", "#a855f722"),
+}
 
 
 def get_base64_image(image_path):
@@ -154,18 +174,47 @@ def _tela_login_cadastro():
         aba_login, aba_cadastro = st.tabs(["Entrar", "Criar conta"])
 
         with aba_login:
-            with st.form("form_login"):
-                username = st.text_input("Usuário")
-                senha = st.text_input("Senha", type="password")
-                enviado = st.form_submit_button("Entrar", width='stretch')
+            if mfa_pendente():
+                st.markdown(f"🔐 Código enviado para o e-mail cadastrado de **{mfa_pendente_username()}**.")
+                st.caption("Verifique também a caixa de spam. O código expira em 10 minutos.")
 
-            if enviado:
-                sucesso, mensagem = autenticar(username.strip(), senha)
-                if sucesso:
-                    st.success(mensagem)
-                    st.rerun()
-                else:
-                    st.error(mensagem)
+                with st.form("form_mfa"):
+                    codigo = st.text_input("Código de verificação (6 dígitos)", max_chars=6)
+                    confirmar_clicado = st.form_submit_button("Confirmar", width='stretch')
+
+                if confirmar_clicado:
+                    sucesso, mensagem = confirmar_mfa(codigo.strip())
+                    if sucesso:
+                        st.success(mensagem)
+                        st.rerun()
+                    else:
+                        st.error(mensagem)
+
+                col_reenviar, col_cancelar = st.columns(2)
+                with col_reenviar:
+                    if st.button("Reenviar código", width='stretch'):
+                        sucesso, mensagem = reenviar_mfa()
+                        if sucesso:
+                            st.success(mensagem)
+                        else:
+                            st.error(mensagem)
+                with col_cancelar:
+                    if st.button("Cancelar", width='stretch'):
+                        cancelar_mfa()
+                        st.rerun()
+            else:
+                with st.form("form_login"):
+                    username = st.text_input("Usuário")
+                    senha = st.text_input("Senha", type="password")
+                    enviado = st.form_submit_button("Entrar", width='stretch')
+
+                if enviado:
+                    sucesso, mensagem = autenticar(username.strip(), senha)
+                    if sucesso:
+                        st.info(mensagem)
+                        st.rerun()
+                    else:
+                        st.error(mensagem)
 
         with aba_cadastro:
             with st.form("form_cadastro"):
@@ -197,6 +246,7 @@ if sessao is None:
 
 usuario_id   = sessao["usuario_id"]
 nome_usuario = sessao["nome"] or sessao["username"]
+role_usuario = sessao["role"]
 
 if "scheduler_iniciado" not in st.session_state:
     iniciar_scheduler()
@@ -218,10 +268,20 @@ with st.sidebar:
         unsafe_allow_html=True
     )
 
+    opcoes_menu = ["Dashboard", "Análises", "Ativos", "Vulnerabilidades", "Relatórios", "Logs"]
+    icones_menu = ["house-fill", "graph-up-arrow", "pc-display", "shield-exclamation", "file-earmark-text", "journal-text"]
+
+    if role_usuario == "admin":
+        opcoes_menu.append("Painel Admin")
+        icones_menu.append("shield-lock-fill")
+
+    opcoes_menu.append("Configurações")
+    icones_menu.append("gear")
+
     selecionado = option_menu(
         menu_title=None,
-        options=["Dashboard", "Análises", "Ativos", "Vulnerabilidades", "Relatórios", "Logs", "Configurações"],
-        icons=["house-fill", "graph-up-arrow", "pc-display", "shield-exclamation", "file-earmark-text", "journal-text", "gear"],
+        options=opcoes_menu,
+        icons=icones_menu,
         default_index=0,
         styles={
             "container": {"padding": "0!important"},
@@ -554,11 +614,10 @@ elif selecionado == "Ativos":
                 registrar_log(usuario_id, nome_usuario,
                     acao="Ativo Deletado",
                     detalhe=f"Ativo removido: {ativo_nome}",
-                    nivel="MÉDIO",
+                    nivel="INFORMATIVO",
                     aplicacao=ativo_nome,
                     ambiente=ativo_ambiente,
                     origem="Plataforma")
-                st.success(f"Ativo '{ativo_nome}' excluído com sucesso!")
                 st.rerun()
         with col_nao:
             if st.button("Cancelar", key=f"btn_cancela_{ativo_id}", width='stretch'):
@@ -649,38 +708,12 @@ elif selecionado == "Relatórios":
 elif selecionado == "Logs":
     st.markdown("<div style='font-size:32px; font-weight:700; margin-bottom:20px; color:var(--text-color);'>Logs de Auditoria</div>", unsafe_allow_html=True)
 
-    @st.dialog("Confirmar limpeza de logs")
-    def _modal_confirmar_limpeza_logs():
-        st.warning("⚠️ Tem certeza que deseja apagar todos os logs? Essa ação não pode ser desfeita.")
-        col_sim, col_nao = st.columns(2)
-        with col_sim:
-            if st.button("Sim, apagar", key="btn_confirma_limpeza_logs", width='stretch'):
-                limpar_logs(usuario_id)
-                st.success("Logs apagados com sucesso!")
-                st.rerun()
-        with col_nao:
-            if st.button("Cancelar", key="btn_cancela_limpeza_logs", width='stretch'):
-                st.rerun()
-
     logs = listar_logs(usuario_id, limite=100)
-
-    cores_nivel = {
-        "CRÍTICO":     ("#ff4b4b", "#ff4b4b22"),
-        "ALTO":        ("#ff8c00", "#ff8c0022"),
-        "MÉDIO":       ("#ffd700", "#ffd70022"),
-        "BAIXO":       ("#00c853", "#00c85322"),
-        "INFORMATIVO": ("#a855f7", "#a855f722"),
-    }
 
     if not logs:
         st.info("Nenhuma ação registrada ainda.")
     else:
-        col_info, col_limpar = st.columns([4, 1])
-        with col_info:
-            st.markdown(f"<p style='opacity:0.6; font-size:13px;'>{len(logs)} registro(s)</p>", unsafe_allow_html=True)
-        with col_limpar:
-            if st.button("🗑️ Limpar logs"):
-                _modal_confirmar_limpeza_logs()
+        st.markdown(f"<p style='opacity:0.6; font-size:13px;'>{len(logs)} registro(s)</p>", unsafe_allow_html=True)
 
         st.markdown("""
             <div style="display:grid; grid-template-columns:1.5fr 0.8fr 1.5fr 1fr 0.8fr 2fr 1fr;
@@ -699,7 +732,7 @@ elif selecionado == "Logs":
         for log in logs:
             log_id, data, nivel, acao, aplicacao, ambiente, detalhe, origem, usuario_nome = log
             nivel = nivel or "INFORMATIVO"
-            cor_texto, cor_bg = cores_nivel.get(nivel, ("#a855f7", "#a855f722"))
+            cor_texto, cor_bg = CORES_NIVEL.get(nivel, ("#a855f7", "#a855f722"))
             st.markdown(f"""
                 <div style="display:grid; grid-template-columns:1.5fr 0.8fr 1.5fr 1fr 0.8fr 2fr 1fr;
                     padding:10px 16px; background:rgba(255,255,255,0.02);
@@ -720,6 +753,166 @@ elif selecionado == "Logs":
                     <span style="opacity:0.6;">{origem or "—"}</span>
                 </div>
             """, unsafe_allow_html=True)
+
+        for log in logs:
+            log_id, data, nivel, acao, aplicacao, ambiente, detalhe, origem, usuario_nome = log
+            nivel = nivel or "INFORMATIVO"
+            cor_texto, cor_bg = CORES_NIVEL.get(nivel, ("#a855f7", "#a855f722"))
+            st.markdown(f"""
+                <div style="display:grid; grid-template-columns:1.5fr 0.8fr 1.5fr 1fr 0.8fr 2fr 1fr;
+                    padding:10px 16px; background:rgba(255,255,255,0.02);
+                    border:1px solid rgba(255,255,255,0.06); border-radius:8px;
+                    font-size:12px; margin-bottom:3px; align-items:center;">
+                    <span style="opacity:0.6; white-space:nowrap;">{data}</span>
+                    <span>
+                        <span style="background:{cor_bg}; color:{cor_texto};
+                            border:1px solid {cor_texto}55; padding:2px 8px;
+                            border-radius:20px; font-size:11px; font-weight:700;">
+                            {nivel}
+                        </span>
+                    </span>
+                    <span style="font-weight:600;">{acao}</span>
+                    <span style="opacity:0.8;">{aplicacao or "—"}</span>
+                    <span style="opacity:0.8;">{ambiente or "—"}</span>
+                    <span style="opacity:0.7;">{detalhe or "—"}</span>
+                    <span style="opacity:0.6;">{origem or "—"}</span>
+                </div>
+            """, unsafe_allow_html=True)
+
+elif selecionado == "Painel Admin":
+    st.markdown("<div style='font-size:32px; font-weight:700; margin-bottom:20px; color:var(--text-color);'>Painel Administrativo</div>", unsafe_allow_html=True)
+
+    aba_usuarios, aba_logs_admin, aba_ativos_admin = st.tabs(
+        ["👥 Usuários", "📜 Logs (Todos)", "📂 Ativos (Todos)"]
+    )
+
+    with aba_usuarios:
+        usuarios_db   = listar_usuarios()
+        admins_atuais = contar_admins()
+        st.markdown(
+            f"<p style='opacity:0.6; font-size:13px;'>{len(usuarios_db)} usuário(s) cadastrado(s) · {admins_atuais} admin(s)</p>",
+            unsafe_allow_html=True
+        )
+        for u in usuarios_db:
+            u_id, u_username, u_email, u_nome, u_role, u_criado = u
+            col_info, col_role, col_acao = st.columns([3, 1, 1.3])
+            with col_info:
+                st.markdown(
+                    f"**{u_nome or u_username}** (@{u_username})  \n"
+                    f"<span style='opacity:0.6; font-size:12px;'>{u_email}</span>",
+                    unsafe_allow_html=True
+                )
+            with col_role:
+                cor = "#a855f7" if u_role == "admin" else "#888888"
+                st.markdown(
+                    f"<span style='background:{cor}22; color:{cor}; padding:4px 10px; "
+                    f"border-radius:20px; font-size:12px; font-weight:700; border:1px solid {cor}55;'>"
+                    f"{u_role.upper()}</span>",
+                    unsafe_allow_html=True
+                )
+            with col_acao:
+                if u_role == "admin":
+                    ultimo_admin = admins_atuais <= 1
+                    if st.button(
+                        "Rebaixar", key=f"rebaixar_{u_id}",
+                        disabled=ultimo_admin,
+                        help="Não é possível remover o último administrador" if ultimo_admin else None
+                    ):
+                        atualizar_role_usuario(u_id, "usuario")
+                        registrar_log(usuario_id, nome_usuario,
+                            acao="Role Alterada",
+                            detalhe=f"Usuário '{u_username}' rebaixado para 'usuario'",
+                            nivel="MÉDIO", aplicacao="*", ambiente="Todos", origem="Painel Admin")
+                        st.rerun()
+                else:
+                    if st.button("Promover a Admin", key=f"promover_{u_id}"):
+                        atualizar_role_usuario(u_id, "admin")
+                        registrar_log(usuario_id, nome_usuario,
+                            acao="Role Alterada",
+                            detalhe=f"Usuário '{u_username}' promovido a 'admin'",
+                            nivel="ALTO", aplicacao="*", ambiente="Todos", origem="Painel Admin")
+                        st.rerun()
+            st.markdown("<hr style='opacity:0.08; margin:8px 0;'>", unsafe_allow_html=True)
+
+    with aba_logs_admin:
+        logs_todos = listar_logs_todos(limite=200)
+        if not logs_todos:
+            st.info("Nenhum log registrado na plataforma.")
+        else:
+            st.markdown(
+                f"<p style='opacity:0.6; font-size:13px;'>{len(logs_todos)} registro(s) de todos os usuários</p>",
+                unsafe_allow_html=True
+            )
+            st.markdown("""
+                <div style="display:grid; grid-template-columns:1.4fr 0.8fr 1.4fr 1fr 0.8fr 2fr 1fr 1fr;
+                    padding:10px 16px; background:rgba(255,255,255,0.05); border-radius:8px;
+                    font-size:12px; font-weight:700; color:#c084fc; margin-bottom:4px; margin-top:12px;">
+                    <span>Data e Hora</span><span>Nível</span><span>Tipo de Evento</span>
+                    <span>Aplicação</span><span>Ambiente</span><span>Descrição</span>
+                    <span>Origem</span><span>Usuário</span>
+                </div>
+            """, unsafe_allow_html=True)
+            for log in logs_todos:
+                log_id, data, nivel, acao, aplicacao, ambiente, detalhe, origem, usuario_nome_log = log
+                nivel = nivel or "INFORMATIVO"
+                cor_texto, cor_bg = CORES_NIVEL.get(nivel, ("#a855f7", "#a855f722"))
+                st.markdown(f"""
+                    <div style="display:grid; grid-template-columns:1.4fr 0.8fr 1.4fr 1fr 0.8fr 2fr 1fr 1fr;
+                        padding:10px 16px; background:rgba(255,255,255,0.02);
+                        border:1px solid rgba(255,255,255,0.06); border-radius:8px;
+                        font-size:12px; margin-bottom:3px; align-items:center;">
+                        <span style="opacity:0.6; white-space:nowrap;">{data}</span>
+                        <span>
+                            <span style="background:{cor_bg}; color:{cor_texto};
+                                border:1px solid {cor_texto}55; padding:2px 8px;
+                                border-radius:20px; font-size:11px; font-weight:700;">
+                                {nivel}
+                            </span>
+                        </span>
+                        <span style="font-weight:600;">{acao}</span>
+                        <span style="opacity:0.8;">{aplicacao or "—"}</span>
+                        <span style="opacity:0.8;">{ambiente or "—"}</span>
+                        <span style="opacity:0.7;">{detalhe or "—"}</span>
+                        <span style="opacity:0.6;">{origem or "—"}</span>
+                        <span style="opacity:0.6;">{usuario_nome_log or "—"}</span>
+                    </div>
+                """, unsafe_allow_html=True)
+
+    with aba_ativos_admin:
+        ativos_todos = listar_ativos_todos()
+        if not ativos_todos:
+            st.info("Nenhum ativo cadastrado na plataforma.")
+        else:
+            st.markdown(
+                f"<p style='opacity:0.6; font-size:13px;'>{len(ativos_todos)} ativo(s) de todos os usuários</p>",
+                unsafe_allow_html=True)
+            st.markdown("""
+                <div style="display:grid; grid-template-columns:2.5fr 1.2fr 1fr 0.7fr;
+                    padding:10px 16px; background:rgba(255,255,255,0.05); border-radius:8px;
+                    font-size:12px; font-weight:700; color:#c084fc; margin-bottom:4px; margin-top:12px;">
+                    <span>Ativo</span>
+                    <span>Dono</span>
+                    <span>Criticidade</span>
+                    <span style="text-align:right;">Score</span>
+                </div>
+            """, unsafe_allow_html=True)
+            cores_crit = {'Crítica':'#ff4b4b','Alta':'#ff8c00','Alto':'#ff8c00','Média':'#ffd700','Baixa':'#00c853'}
+            for a in ativos_todos:
+                cor = cores_crit.get(a[6], '#ffffff')
+                st.markdown(f"""
+                    <div style="display:grid; grid-template-columns:2.5fr 1.2fr 1fr 0.7fr;
+                        align-items:center; padding:12px 16px; background:rgba(255,255,255,0.02);
+                        border:1px solid rgba(255,255,255,0.06); border-radius:8px;
+                        font-size:14px; margin-bottom:4px;">
+                        <span><span style="font-weight:600;">{a[2]}</span>
+                            <span style="opacity:0.6; font-size:12px;"> ({a[3]} · {a[5]})</span></span>
+                        <span style="opacity:0.7; font-size:13px;"><b>{a[10]}</b></span>
+                        <span><span style="background:{cor}22; color:{cor}; padding:4px 10px;
+                            border-radius:20px; font-size:12px; font-weight:700;
+                            border:1px solid {cor}55;">{a[6]}</span></span>
+                        <span style="color:{cor}; font-weight:800; text-align:right;">{a[7]}</span>
+                    </div>
+                """, unsafe_allow_html=True)
 
 elif selecionado == "Configurações":
     st.markdown("<div style='font-size:32px; font-weight:700; margin-bottom:20px; color:var(--text-color);'>Configurações</div>", unsafe_allow_html=True)
@@ -747,29 +940,31 @@ elif selecionado == "Configurações":
 
     st.markdown("---")
 
-    st.markdown("### ⏱️ Agendamento de Re-scan Automático")
-    st.markdown("Define de quanto em quanto tempo o sistema re-escaneia todos os ativos automaticamente.")
+    if role_usuario == "admin":
+        st.markdown("### ⏱️ Agendamento de Re-scan Automático")
+        st.caption("🔒 Configuração global — visível apenas para administradores, pois afeta todos os usuários da plataforma.")
+        st.markdown("Define de quanto em quanto tempo o sistema re-escaneia todos os ativos automaticamente.")
 
-    intervalo_atual = get_intervalo_rescan()
-    opcoes = {
-        "A cada 30 minutos":  30,
-        "A cada 1 hora":      60,
-        "A cada 3 horas":    180,
-        "A cada 6 horas":    360,
-        "A cada 12 horas":   720,
-        "A cada 24 horas":  1440,
-    }
-    label_atual = next((k for k, v in opcoes.items() if v == intervalo_atual), "A cada 1 hora")
-    novo_label  = st.selectbox("Intervalo de re-scan:", options=list(opcoes.keys()),
-                                index=list(opcoes.keys()).index(label_atual), filter_mode=None)
+        intervalo_atual = get_intervalo_rescan()
+        opcoes = {
+            "A cada 30 minutos":  30,
+            "A cada 1 hora":      60,
+            "A cada 3 horas":    180,
+            "A cada 6 horas":    360,
+            "A cada 12 horas":   720,
+            "A cada 24 horas":  1440,
+        }
+        label_atual = next((k for k, v in opcoes.items() if v == intervalo_atual), "A cada 1 hora")
+        novo_label  = st.selectbox("Intervalo de re-scan:", options=list(opcoes.keys()),
+                                    index=list(opcoes.keys()).index(label_atual), filter_mode=None)
 
-    if st.button("💾 Salvar agendamento"):
-        novo_intervalo = opcoes[novo_label]
-        set_intervalo_rescan(novo_intervalo)
-        reiniciar_scheduler(novo_intervalo)
-        registrar_log(usuario_id, nome_usuario,
-            acao="Agendamento Alterado",
-            detalhe=f"Novo intervalo: {novo_label}",
-            nivel="INFORMATIVO", aplicacao="*", ambiente="Todos", origem="Scheduler")
-        st.success(f"✅ Agendamento atualizado para: {novo_label}")
-        st.info(f"O próximo re-scan automático será em até {novo_intervalo} minutos.")
+        if st.button("💾 Salvar agendamento"):
+            novo_intervalo = opcoes[novo_label]
+            set_intervalo_rescan(novo_intervalo)
+            reiniciar_scheduler(novo_intervalo)
+            registrar_log(usuario_id, nome_usuario,
+                acao="Agendamento Alterado",
+                detalhe=f"Novo intervalo: {novo_label}",
+                nivel="INFORMATIVO", aplicacao="*", ambiente="Todos", origem="Scheduler")
+            st.success(f"✅ Agendamento atualizado para: {novo_label}")
+            st.info(f"O próximo re-scan automático será em até {novo_intervalo} minutos.")

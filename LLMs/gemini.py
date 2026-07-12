@@ -5,11 +5,7 @@ import json
 import re
 import os
 from collections import defaultdict
-from dotenv import load_dotenv
 from MachineLearning.risk_score_model import calcular_score_ml, criticidade_por_score
-
-
-load_dotenv()
 
 
 CHAVES_API = [
@@ -144,12 +140,12 @@ def analisar_vulnerabilidades(tipo, url, ambiente, resultado_sast, resultado_das
     if e_runtime:
         sast_final = "IGNORADO (O ativo é uma URL/Runtime, análise de código não aplicável)"
         sca_final  = "IGNORADO (O ativo é uma URL/Runtime, análise de dependências não aplicável)"
+        dast_final = resultado_dast if (resultado_dast and resultado_dast != "[]") else "LIMPO"
     else:
         sast_dedup = deduplicate_sast(resultado_sast) if (resultado_sast and resultado_sast != "[]") else "[]"
         sast_final = sast_dedup if (sast_dedup and sast_dedup != "[]") else "LIMPO"
         sca_final  = resultado_sca if (resultado_sca and resultado_sca != "[]") else "LIMPO"
-
-    dast_final = resultado_dast if (resultado_dast and resultado_dast != "[]") else "LIMPO"
+        dast_final = "IGNORADO (O ativo é um Repositório, análise dinâmica/runtime não aplicável)"
 
     ferramentas_utilizadas = []
     if not sast_final.startswith("IGNORADO"):
@@ -349,7 +345,7 @@ REGRAS DE NEGÓCIO
     real. Exemplo: um CVE que causa apenas DoS pertence ao campo 'medios', nunca a 'criticos',
     mesmo que o score geral do ativo seja 95.
 
-12. No campo 'recomendacoes' (Plano de Ação), cite SOMENTE as ferramentas listadas na seção
+12. No campo 'explicacao_executiva' (Análise de Postura de Segurança), cite SOMENTE as ferramentas listadas na seção
     "FERRAMENTAS EFETIVAMENTE UTILIZADAS NESTA ANÁLISE" acima. NUNCA mencione, sugira ou faça
     referência a ferramentas que não constam nessa lista (ex: não cite Semgrep se o ativo for
     uma API/Aplicação, não cite OWASP ZAP se o ativo for um Repositório). Se uma recomendação
