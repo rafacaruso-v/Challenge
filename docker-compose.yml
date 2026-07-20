@@ -18,11 +18,11 @@ services:
       - GEMINI_KEY_3=${GEMINI_KEY_3}
       - GEMINI_KEY_4=${GEMINI_KEY_4}
       - ZAP_HOST=zap
-      - GMAIL_USER=cybertubbies@gmail.com
-      - GMAIL_APP_PASSWORD=ncwwebbftsnsyrez
-      - ADMIN_USERNAME=Adm
-      - ADMIN_EMAIL=cybertubbies@gmail.com
-      - ADMIN_PASSWORD=Ademir123$
+      - GMAIL_USER=cybertubbies@gmail.com {GMAIL_USER}
+      - GMAIL_APP_PASSWORD=ncwwebbftsnsyrez {GMAIL_APP_PASSWORD}
+      - ADMIN_USERNAME=Adm {ADMIN_USERNAME}
+      - ADMIN_EMAIL=cybertubbies@gmail.com {ADMIN_EMAIL}
+      - ADMIN_PASSWORD=Ademir123$ {ADMIN_PASSWORD}
     depends_on:
       - zap
     volumes:

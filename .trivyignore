@@ -11,3 +11,21 @@
 # Revisar esta exceção ao atualizar google-genai/protobuf, ou antes de
 # qualquer deploy em ambiente real.
 CVE-2026-0994
+
+# CVE-2026-52869 / CVE-2026-52870 / CVE-2026-59950: vulnerabilidades nos
+# transportes de servidor (SSE, Streamable HTTP, WebSocket) do pacote
+# "mcp" (Model Context Protocol SDK), versão 1.23.3, permitindo mistura
+# de sessões entre clientes (injeção de mensagens, acesso/cancelamento
+# de tarefas de outra sessão) e ausência de validação de Host/Origin.
+#
+# Risco aceito: o pacote "mcp" é dependência transitiva (não usamos
+# nenhum transporte de servidor MCP - SSE/Streamable HTTP/WebSocket -
+# ativamente no projeto). As vulnerabilidades só são exploráveis se um
+# servidor MCP estiver de fato exposto e em execução, o que não é o
+# caso aqui. Projeto acadêmico, sem exposição em produção real.
+#
+# Revisar esta exceção caso o projeto passe a expor um servidor MCP,
+# ou antes de qualquer deploy em ambiente real. Fix disponível: mcp>=1.28.1.
+CVE-2026-52869
+CVE-2026-52870
+CVE-2026-59950
