@@ -11,8 +11,6 @@ RUN apt-get update && apt-get install -y \
     gnupg \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install semgrep
-
 COPY requirements.txt .
 RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 
@@ -23,8 +21,6 @@ WORKDIR /app
 RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /install /usr/local
-COPY --from=builder /usr/local/bin/semgrep /usr/local/bin/semgrep
-COPY --from=builder /usr/local/lib/python3.13/site-packages /usr/local/lib/python3.13/site-packages
 
 COPY . .
 
