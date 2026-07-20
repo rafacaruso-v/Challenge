@@ -6,6 +6,11 @@ import re
 import os
 from collections import defaultdict
 from MachineLearning.risk_score_model import calcular_score_ml, criticidade_por_score
+from MachineLearning.false_positive import (
+    reduzir_falsos_positivos_sast,
+    reduzir_falsos_positivos_sca,
+    reduzir_falsos_positivos_dast,
+)
 
 
 CHAVES_API = [
@@ -37,6 +42,8 @@ class AnaliseVulnerabilidadeSchema(BaseModel):
     altos:    list[str] = Field(description="Lista de CVEs Altos do SCA. Mesmo formato. Se não houver, retorne lista vazia.")
     medios:   list[str] = Field(description="Lista de CVEs Médios do SCA. Mesmo formato. Se não houver, retorne lista vazia.")
     baixos:   list[str] = Field(description="Lista de CVEs Baixos do SCA. Mesmo formato. Se não houver, retorne lista vazia.")
+
+    falsos_positivos_confirmados: list[str] = Field(description="Lista de achados (SAST/DAST/SCA) que você analisou e concluiu serem FALSOS POSITIVOS confirmados — ou seja, o padrão textual sugere risco, mas o código/contexto comprova que não há vulnerabilidade real explorável (ex: valor validado por whitelist antes de uso, dado nunca alcança input externo, biblioteca não é chamada de forma insegura). Formato: 'TipoAchado: explicação técnica de por que é seguro, arquivo/linha afetada'. Um achado listado aqui NÃO deve aparecer em nenhuma das listas de criticidade (criticos_sast, altos_sast, etc). Se não houver nenhum, retorne lista vazia.")
 
     explicacao_executiva: str = Field(description="Análise de postura de segurança macro e descritiva para o relatório executivo.")
     recomendacoes: str = Field(description="Passos para correção ou melhorias (Plano de Ação)")
@@ -74,6 +81,34 @@ def _sanitizar_texto(texto: str) -> str:
     return _PADRAO_INJECTION_REGEX.sub(_marcar, texto)
 
 
+def _agrupar_por_proximidade(itens_com_linha: list, distancia_maxima: int = 3) -> list:
+    """
+    Recebe uma lista de dicts com pelo menos a chave 'linha' (int) e
+    agrupa em clusters onde a distância entre linhas consecutivas é
+    menor ou igual a distancia_maxima. Isso evita fundir achados do
+    mesmo check_id que estão em partes completamente diferentes do
+    arquivo (ex: linha 19 e linha 89 nunca devem virar um só item).
+    """
+    itens_ordenados = sorted(itens_com_linha, key=lambda x: x["linha"])
+    clusters = []
+    cluster_atual = []
+
+    for item in itens_ordenados:
+        if not cluster_atual:
+            cluster_atual = [item]
+            continue
+        if item["linha"] - cluster_atual[-1]["linha"] <= distancia_maxima:
+            cluster_atual.append(item)
+        else:
+            clusters.append(cluster_atual)
+            cluster_atual = [item]
+
+    if cluster_atual:
+        clusters.append(cluster_atual)
+
+    return clusters
+
+
 def deduplicate_sast(resultado_sast_raw: str) -> str:
     try:
         findings = json.loads(resultado_sast_raw)
@@ -87,45 +122,54 @@ def deduplicate_sast(resultado_sast_raw: str) -> str:
     for f in findings:
         check_id = f.get("check_id", "desconhecido")
         caminho  = f.get("path", "desconhecido")
+        mensagem = f.get("message", "")
+        snippet  = f.get("snippet", "")
 
-        linha = "?"
+        linha_raw = "?"
         if isinstance(f.get("start"), dict) and "line" in f.get("start"):
-            linha = f["start"]["line"]
+            linha_raw = f["start"]["line"]
         elif "line" in f:
-            linha = f["line"]
+            linha_raw = f["line"]
         elif isinstance(f.get("location"), dict):
-            linha = f["location"].get("start_line", f["location"].get("line", "?"))
+            linha_raw = f["location"].get("start_line", f["location"].get("line", "?"))
+
+        try:
+            linha_int = int(linha_raw)
+        except (TypeError, ValueError):
+            continue
 
         chave = (check_id, caminho)
-        grupos_iniciais[chave].append(str(linha))
-
-    grupos_finais = defaultdict(list)
-    for (check_id, caminho), linhas in grupos_iniciais.items():
-        linhas_validas = [l for l in linhas if l != "?"]
-        linhas_unicas = tuple(sorted(set(linhas_validas), key=lambda x: int(x) if x.isdigit() else str(x)))
-        grupos_finais[(caminho, linhas_unicas)].append(check_id)
+        grupos_iniciais[chave].append({
+            "linha": linha_int,
+            "mensagem": mensagem,
+            "snippet": snippet,
+        })
 
     resultado = []
-    for (caminho, linhas_unicas), checks in grupos_finais.items():
-        if not linhas_unicas:
-            linhas_str = "linha desconhecida"
-        elif len(linhas_unicas) == 1:
-            linhas_str = f"linha {linhas_unicas[0]}"
-        elif len(linhas_unicas) == 2:
-            linhas_str = f"linhas {linhas_unicas[0]} e {linhas_unicas[1]}"
-        else:
-            linhas_str = "linhas " + ", ".join(linhas_unicas[:-1]) + f" e {linhas_unicas[-1]}"
+    for (check_id, caminho), itens in grupos_iniciais.items():
+        clusters = _agrupar_por_proximidade(itens, distancia_maxima=3)
 
-        if len(checks) == 1:
-            nome_vuln = checks[0]
-        else:
-            nome_vuln = "Múltiplas violações (" + ", ".join(checks) + ")"
+        for cluster in clusters:
+            linhas_unicas = sorted(set(item["linha"] for item in cluster))
+            linhas_str_lista = [str(l) for l in linhas_unicas]
 
-        resultado.append({
-            "check_id": checks[0],
-            "path": caminho,
-            "message_completa": f"{nome_vuln} detectado(s) em {os.path.basename(caminho)}, {linhas_str}."
-        })
+            if len(linhas_str_lista) == 1:
+                linhas_str = f"linha {linhas_str_lista[0]}"
+            elif len(linhas_str_lista) == 2:
+                linhas_str = f"linhas {linhas_str_lista[0]} e {linhas_str_lista[1]}"
+            else:
+                linhas_str = "linhas " + ", ".join(linhas_str_lista[:-1]) + f" e {linhas_str_lista[-1]}"
+
+            mensagem_representativa = next((i["mensagem"] for i in cluster if i["mensagem"]), "")
+            snippet_representativo  = next((i["snippet"] for i in cluster if i["snippet"]), "")
+
+            resultado.append({
+                "check_id": check_id,
+                "path": caminho,
+                "message": mensagem_representativa,
+                "message_completa": f"{check_id} detectado(s) em {os.path.basename(caminho)}, {linhas_str}.",
+                "code_snippet": snippet_representativo,
+            })
 
     return json.dumps(resultado, ensure_ascii=False)
 
@@ -137,14 +181,26 @@ def analisar_vulnerabilidades(tipo, url, ambiente, resultado_sast, resultado_das
 
     e_runtime = tipo in ("API", "Aplicação")
 
+    descartados_total = []
+
     if e_runtime:
         sast_final = "IGNORADO (O ativo é uma URL/Runtime, análise de código não aplicável)"
         sca_final  = "IGNORADO (O ativo é uma URL/Runtime, análise de dependências não aplicável)"
-        dast_final = resultado_dast if (resultado_dast and resultado_dast != "[]") else "LIMPO"
+
+        dast_filtrado, descartados_dast = reduzir_falsos_positivos_dast(resultado_dast)
+        descartados_total.extend(descartados_dast)
+        dast_final = dast_filtrado if (dast_filtrado and dast_filtrado != "[]") else "LIMPO"
     else:
         sast_dedup = deduplicate_sast(resultado_sast) if (resultado_sast and resultado_sast != "[]") else "[]"
-        sast_final = sast_dedup if (sast_dedup and sast_dedup != "[]") else "LIMPO"
-        sca_final  = resultado_sca if (resultado_sca and resultado_sca != "[]") else "LIMPO"
+
+        sast_filtrado, descartados_sast = reduzir_falsos_positivos_sast(sast_dedup)
+        descartados_total.extend(descartados_sast)
+        sast_final = sast_filtrado if (sast_filtrado and sast_filtrado != "[]") else "LIMPO"
+
+        sca_filtrado, descartados_sca = reduzir_falsos_positivos_sca(resultado_sca)
+        descartados_total.extend(descartados_sca)
+        sca_final = sca_filtrado if (sca_filtrado and sca_filtrado != "[]") else "LIMPO"
+
         dast_final = "IGNORADO (O ativo é um Repositório, análise dinâmica/runtime não aplicável)"
 
     ferramentas_utilizadas = []
@@ -176,6 +232,26 @@ Antes de classificar qualquer finding, siga estas etapas:
    antes de chegar aqui. Cada item representa um finding técnico do Semgrep — mas múltiplos
    itens ainda podem descrever a MESMA vulnerabilidade real (veja a regra de consolidação
    semântica abaixo antes de classificar).
+
+3. REDUÇÃO DE FALSOS POSITIVOS: Os resultados abaixo já passaram por um filtro de Machine
+   Learning que descartou automaticamente achados com altíssima probabilidade de serem
+   falsos positivos (ex: valores de teste/exemplo, entropia baixa, caminhos de mock/docs).
+   O que resta já é um conjunto mais confiável, mas você ainda deve aplicar seu próprio
+   julgamento técnico normalmente.
+
+4. USO DO CAMPO 'code_snippet' (SAST): Quando presente, esse campo mostra o trecho real
+   do código-fonte ao redor do achado, numerado por linha. Use esse contexto para avaliar
+   se o dado que chega até a operação sensível (query SQL, comando de shell, eval, etc.)
+   é de fato controlável por um atacante externo (input de usuário, parâmetro de requisição
+   HTTP) ou se está restrito por validações que aparecem no próprio trecho (ex: comparação
+   contra uma whitelist/set fixo, enum, constante do programa). Se o snippet demonstrar
+   claramente que o valor usado na operação sensível é validado contra uma lista fixa antes
+   de ser usado, ou vem de uma constante definida no próprio código (não de input externo),
+   trate esse achado como FALSO POSITIVO CONFIRMADO: mova-o para o campo
+   'falsos_positivos_confirmados' com a justificativa técnica, e NÃO o inclua em nenhuma
+   lista de criticidade (criticos_sast, altos_sast, medios_sast, baixos_sast). Não aplique
+   essa reclassificação a menos que o snippet comprove a validação de forma inequívoca —
+   na dúvida, mantenha o achado na lista de criticidade normal.
 
 ==================================================
 AVISO DE SEGURANÇA — DADOS NÃO CONFIÁVEIS
@@ -410,12 +486,35 @@ Retorne SOMENTE JSON seguindo estritamente o schema fornecido.
             bloco_dast = _montar_bloco_nivel(niveis_dast) or "✅ Nenhuma vulnerabilidade encontrada pelo DAST.\n"
             bloco_sca  = _montar_bloco_nivel(niveis_sca)  or "✅ Nenhuma vulnerabilidade de dependências encontrada.\n"
 
+            fp_confirmados_ia = _dedup(dados_json.get("falsos_positivos_confirmados", []))
+
+            bloco_fp = ""
+            if descartados_total:
+                bloco_fp += f"[NIVEL:fp]🤖 Descartado pelo Filtro de Machine Learning[/NIVEL]\n"
+                for d in descartados_total:
+                    confianca_pct = round(d["fp_probabilidade"] * 100)
+                    caminho_str = f" — {d['caminho']}" if d.get("caminho") else ""
+                    bloco_fp += f"- [{d['tipo_scanner']}] {d['texto']}{caminho_str} (confiança de FP: {confianca_pct}%)\n"
+                bloco_fp += "\n"
+
+            if fp_confirmados_ia:
+                bloco_fp += f"[NIVEL:fp]🧠 Confirmado pela Análise da IA[/NIVEL]\n"
+                for item in fp_confirmados_ia:
+                    bloco_fp += f"- {item}\n"
+                bloco_fp += "\n"
+
+            bloco_fp = bloco_fp.strip()
+            if not bloco_fp:
+                bloco_fp = "✅ Nenhum achado foi identificado como falso positivo nesta análise.\n"
+
             texto_formatado = f"""---VULNS_SAST_DAST---
 {bloco_sast.strip()}
 ---DIVISOR---
 {bloco_dast.strip()}
 ---VULNS_SCA---
 {bloco_sca.strip()}
+---VULNS_FP---
+{bloco_fp}
 ---RELATORIO---
 ### Análise de Postura de Segurança
 {dados_json.get('explicacao_executiva')}

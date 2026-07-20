@@ -40,7 +40,7 @@ def rodar_trivy(caminho_ou_url):
         resultado = subprocess.run(
             [
                 "trivy", "fs",
-                "--scanners", "vuln",
+                "--scanners", "vuln,secret,misconfig",
                 "--format", "json",
                 "--quiet",
                 caminho_local
@@ -56,16 +56,45 @@ def rodar_trivy(caminho_ou_url):
 
             alertas_limpos = []
             for resultado_arquivo in resultados:
+                arquivo_alvo = resultado_arquivo.get("Target")
+
                 vulnerabilidades = resultado_arquivo.get("Vulnerabilities") or []
                 for vuln in vulnerabilidades:
                     alertas_limpos.append({
+                        "categoria":  "CVE",
                         "package":    vuln.get("PkgName"),
                         "version":    vuln.get("InstalledVersion"),
                         "cve":        vuln.get("VulnerabilityID"),
                         "severity":   vuln.get("Severity"),
                         "fix":        vuln.get("FixedVersion", "Sem fix disponível"),
                         "title":      vuln.get("Title", ""),
-                        "file":       resultado_arquivo.get("Target")
+                        "file":       arquivo_alvo
+                    })
+
+                segredos = resultado_arquivo.get("Secrets") or []
+                for segredo in segredos:
+                    alertas_limpos.append({
+                        "categoria":  "SECRET",
+                        "package":    "",
+                        "version":    "",
+                        "cve":        segredo.get("RuleID", ""),
+                        "severity":   segredo.get("Severity", ""),
+                        "fix":        "Remover o segredo do código e revogar/rotacionar a credencial exposta",
+                        "title":      f"{segredo.get('Title', 'Segredo exposto')} (linha {segredo.get('StartLine', '?')})",
+                        "file":       arquivo_alvo
+                    })
+
+                misconfigs = resultado_arquivo.get("Misconfigurations") or []
+                for misconfig in misconfigs:
+                    alertas_limpos.append({
+                        "categoria":  "MISCONFIG",
+                        "package":    "",
+                        "version":    "",
+                        "cve":        misconfig.get("ID", ""),
+                        "severity":   misconfig.get("Severity", ""),
+                        "fix":        misconfig.get("Resolution", "Sem fix disponível"),
+                        "title":      misconfig.get("Title", ""),
+                        "file":       arquivo_alvo
                     })
 
             return json.dumps(alertas_limpos, indent=2)
@@ -75,7 +104,7 @@ def rodar_trivy(caminho_ou_url):
     except subprocess.TimeoutExpired:
         return "ERRO: O scan do Trivy demorou demais e foi interrompido."
     except Exception as e:
-        return f"Erro: {str(e)}"
+        return f"ERRO: {str(e)}"
 
     finally:
         if clonado and os.path.exists(caminho_local):

@@ -126,11 +126,13 @@ st.markdown(
     .vuln-card.alto    {{ background: rgba(255,140,0,0.08);  border-color: #ff8c00; }}
     .vuln-card.medio   {{ background: rgba(255,215,0,0.08);  border-color: #ffd700; }}
     .vuln-card.baixo   {{ background: rgba(0,200,83,0.08);   border-color: #00c853; }}
+    .vuln-card.fp      {{ background: rgba(168,85,247,0.08); border-color: #a855f7; }}
     .vuln-card-title {{ font-size:15px; font-weight:700; margin-bottom:10px; display:flex; align-items:center; gap:8px; }}
     .vuln-card-title.critico {{ color: #ff4b4b; }}
     .vuln-card-title.alto    {{ color: #ff8c00; }}
     .vuln-card-title.medio   {{ color: #ffd700; }}
     .vuln-card-title.baixo   {{ color: #00c853; }}
+    .vuln-card-title.fp      {{ color: #a855f7; }}
     .vuln-item {{
         font-size:13px; padding:6px 0px 6px 12px;
         border-bottom:1px solid rgba(255,255,255,0.05);
@@ -331,10 +333,15 @@ def _render_cards(conteudo: str):
         i += 3
 
 def _parse_blocos(texto_completo):
-    sast_dast = sca = relatorio = ""
+    sast_dast = sca = fp = relatorio = ""
     if "---VULNS_SAST_DAST---" in texto_completo:
         sast_dast = texto_completo.split("---VULNS_SAST_DAST---")[1].split("---VULNS_SCA---")[0].strip()
-        sca       = texto_completo.split("---VULNS_SCA---")[1].split("---RELATORIO---")[0].strip()
+        resto_sca = texto_completo.split("---VULNS_SCA---")[1]
+        if "---VULNS_FP---" in resto_sca:
+            sca = resto_sca.split("---VULNS_FP---")[0].strip()
+            fp  = resto_sca.split("---VULNS_FP---")[1].split("---RELATORIO---")[0].strip()
+        else:
+            sca = resto_sca.split("---RELATORIO---")[0].strip()
     elif "---VULNS---" in texto_completo:
         bloco = texto_completo.split("---VULNS---")[1].split("---RELATORIO---")[0].strip()
         MARC  = "### 📦 SCA (Trivy)"
@@ -351,7 +358,7 @@ def _parse_blocos(texto_completo):
         sast_dast = texto_completo
     if "---RELATORIO---" in texto_completo:
         relatorio = texto_completo.split("---RELATORIO---")[1].strip()
-    return sast_dast, sca, relatorio
+    return sast_dast, sca, fp, relatorio
 
 def _render_sast_dast(conteudo: str):
     if "---DIVISOR---" in conteudo:
@@ -375,6 +382,23 @@ def _exibir_abas(tipo, sast_dast_conteudo, sca_conteudo):
         bloco_dast = sast_dast_conteudo.split("---DIVISOR---")[1].strip() if "---DIVISOR---" in sast_dast_conteudo else sast_dast_conteudo
         aba_dast, = st.tabs(["🌐 Relatório DAST"])
         with aba_dast: _render_cards(bloco_dast)
+
+def _exibir_relatorio_e_fp(rel_conteudo, fp_conteudo=""):
+    st.markdown("<br>", unsafe_allow_html=True)
+    aba_analise, aba_fp = st.tabs(["📊 Análise", "🔍 Falsos Positivos"])
+
+    with aba_analise:
+        if rel_conteudo:
+            st.markdown(rel_conteudo)
+        else:
+            st.info("Nenhuma análise disponível.")
+
+    with aba_fp:
+        st.caption("Achados descartados automaticamente antes da análise pela IA, por alta probabilidade de serem falsos positivos.")
+        if fp_conteudo:
+            _render_cards(fp_conteudo)
+        else:
+            st.info("Nenhum achado foi descartado como falso positivo nesta análise.")
 
 def exibir_alertas_banner():
     alertas = listar_alertas_ativos(usuario_id)
@@ -591,13 +615,10 @@ elif selecionado == "Análises":
                             origem=f"Scanner - {tipo}")
                         st.success("✅ Análise concluída!")
                         st.metric("Risk Score", score)
-                        sast_dast_c, sca_c, rel_c = _parse_blocos(analise)
+                        sast_dast_c, sca_c, fp_c, rel_c = _parse_blocos(analise)
                         st.markdown("<br><h3>📋 Resultados Detalhados</h3>", unsafe_allow_html=True)
                         _exibir_abas(tipo, sast_dast_c, sca_c)
-                        if rel_c:
-                            st.markdown("<br>", unsafe_allow_html=True)
-                            st.markdown("---")
-                            st.markdown(rel_c)
+                        _exibir_relatorio_e_fp(rel_c, fp_c)
                 except Exception as e:
                     st.error(f"Erro inesperado: {e}")
 
@@ -667,7 +688,7 @@ elif selecionado == "Vulnerabilidades":
         if ativo_selecionado:
             dados_ativo = opcoes_ativos[ativo_selecionado]
             try:
-                sast_dast_c, sca_c, _ = _parse_blocos(dados_ativo[8])
+                sast_dast_c, sca_c, _, _ = _parse_blocos(dados_ativo[8])
                 _exibir_abas(dados_ativo[3], sast_dast_c, sca_c)
             except IndexError:
                 st.warning("⚠️ O texto da análise está corrompido ou em formato antigo.")
@@ -682,7 +703,7 @@ elif selecionado == "Relatórios":
         ativo_sel = st.selectbox("Selecione o ativo:", options=list(opcoes_ativos.keys()), filter_mode=None)
         if ativo_sel:
             dados_ativo = opcoes_ativos[ativo_sel]
-            _, _, rel_c = _parse_blocos(dados_ativo[8])
+            _, _, _, rel_c = _parse_blocos(dados_ativo[8])
             if rel_c:
                 st.markdown(rel_c)
                 from gerar_pdf import gerar_pdf_relatorio
@@ -728,31 +749,6 @@ elif selecionado == "Logs":
                 <span>Origem</span>
             </div>
         """, unsafe_allow_html=True)
-
-        for log in logs:
-            log_id, data, nivel, acao, aplicacao, ambiente, detalhe, origem, usuario_nome = log
-            nivel = nivel or "INFORMATIVO"
-            cor_texto, cor_bg = CORES_NIVEL.get(nivel, ("#a855f7", "#a855f722"))
-            st.markdown(f"""
-                <div style="display:grid; grid-template-columns:1.5fr 0.8fr 1.5fr 1fr 0.8fr 2fr 1fr;
-                    padding:10px 16px; background:rgba(255,255,255,0.02);
-                    border:1px solid rgba(255,255,255,0.06); border-radius:8px;
-                    font-size:12px; margin-bottom:3px; align-items:center;">
-                    <span style="opacity:0.6; white-space:nowrap;">{data}</span>
-                    <span>
-                        <span style="background:{cor_bg}; color:{cor_texto};
-                            border:1px solid {cor_texto}55; padding:2px 8px;
-                            border-radius:20px; font-size:11px; font-weight:700;">
-                            {nivel}
-                        </span>
-                    </span>
-                    <span style="font-weight:600;">{acao}</span>
-                    <span style="opacity:0.8;">{aplicacao or "—"}</span>
-                    <span style="opacity:0.8;">{ambiente or "—"}</span>
-                    <span style="opacity:0.7;">{detalhe or "—"}</span>
-                    <span style="opacity:0.6;">{origem or "—"}</span>
-                </div>
-            """, unsafe_allow_html=True)
 
         for log in logs:
             log_id, data, nivel, acao, aplicacao, ambiente, detalhe, origem, usuario_nome = log
@@ -967,4 +963,3 @@ elif selecionado == "Configurações":
                 detalhe=f"Novo intervalo: {novo_label}",
                 nivel="INFORMATIVO", aplicacao="*", ambiente="Todos", origem="Scheduler")
             st.success(f"✅ Agendamento atualizado para: {novo_label}")
-            st.info(f"O próximo re-scan automático será em até {novo_intervalo} minutos.")

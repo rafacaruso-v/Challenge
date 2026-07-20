@@ -2,7 +2,7 @@ rules:
 
   # ===========================================================================
   # REGRA 1 — XSS Potencial real (filtra falsos positivos)
-  # Problema original: Semgrep flagava qualquer return com f-string como XSS,
+  # Problema original: Semgrep flagrava qualquer return com f-string como XSS,
   # mesmo quando o Flask retorna text/plain (não renderizado pelo navegador).
   # Solução: só dispara se o input do usuário for passado para render_template
   # ou render_template_string — contextos onde HTML é de fato renderizado.
