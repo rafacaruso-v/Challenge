@@ -1,0 +1,13 @@
+# CVE-2026-0994: DoS via bypass de limite de recursão em
+# google.protobuf.json_format.ParseDict() ao processar mensagens
+# google.protobuf.Any aninhadas.
+#
+# Risco aceito: o pacote "protobuf" é dependência transitiva do SDK
+# google-genai (usado para chamadas ao Gemini). Não há, no projeto,
+# parsing direto de input não confiável via ParseDict(). Impacto seria
+# apenas indisponibilidade (DoS), sem risco de vazamento de dados ou
+# execução de código. Projeto acadêmico, sem exposição em produção real.
+#
+# Revisar esta exceção ao atualizar google-genai/protobuf, ou antes de
+# qualquer deploy em ambiente real.
+CVE-2026-0994

@@ -19,7 +19,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.13"
@@ -199,7 +198,6 @@ jobs:
     needs: [semgrep, secrets-scan, pipeline-scan, dependency-scan, sbom]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.13"
@@ -223,7 +221,7 @@ jobs:
           timeout 30s bash -c 'until curl -s http://localhost:80; do sleep 2; done' || true
 
       - name: OWASP ZAP Baseline Scan
-        uses: zaproxy/action-baseline@de8ad967d3548d44ef623df22cf95c3b0baf8b25 # v0.15.0
+        uses: zaproxy/action-baseline@de8ad967d3548d44ef623df22cf95c3b0baf8b25
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           target: "http://localhost:80"
@@ -233,7 +231,7 @@ jobs:
           artifact_name: "zap-analysis-report"
 
       - name: Comment PR on DAST failure
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
         if: failure() && github.event_name == 'pull_request'
         with:
           script: |
