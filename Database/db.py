@@ -110,6 +110,10 @@ def criar_tabela():
         "ALTER TABLE usuarios ADD COLUMN mfa_code TEXT",
         "ALTER TABLE usuarios ADD COLUMN mfa_expira TEXT",
         "ALTER TABLE usuarios ADD COLUMN mfa_tentativas INTEGER DEFAULT 0",
+        # CSPM (AWS) - abordagem via AssumeRole: guardamos apenas o ARN da role
+        # e a regiao. Nao ha credenciais de longa duracao armazenadas aqui.
+        "ALTER TABLE ativos ADD COLUMN aws_role_arn TEXT",
+        "ALTER TABLE ativos ADD COLUMN aws_region TEXT",
     ]:
         try:
             cursor.execute(sql)
@@ -471,3 +475,33 @@ def resolver_alerta(usuario_id, alerta_id):
     cursor = conexao.cursor()
     cursor.execute("UPDATE alertas SET resolvido = 1 WHERE id = ? AND usuario_id = ?", (alerta_id, usuario_id))
     conexao.commit()
+
+
+def salvar_ativo_cloud(usuario_id, nome, ambiente, criticidade, score, analise,
+                        aws_role_arn, aws_region):
+    """
+    Salva um ativo do tipo 'Conta Cloud (AWS)'. Diferente dos demais tipos,
+    nao ha 'url' tradicional - o identificador do recurso escaneado e o
+    ARN da IAM Role assumida via AssumeRole. Nao ha credenciais de longa
+    duracao armazenadas (sem Access Key / Secret Key).
+    """
+    conexao = conectar()
+    cursor = conexao.cursor()
+    cursor.execute("""
+        INSERT INTO ativos (
+            usuario_id, nome, tipo, url, ambiente, criticidade, score, analise,
+            ultima_analise, aws_role_arn, aws_region
+        ) VALUES (?, ?, 'Conta Cloud (AWS)', ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (usuario_id, nome, aws_role_arn, ambiente, criticidade, score, analise,
+          datetime.now().strftime("%d/%m/%Y %H:%M"),
+          aws_role_arn, aws_region))
+    conexao.commit()
+
+def buscar_role_arn_aws(usuario_id, ativo_id):
+    conexao = conectar()
+    cursor = conexao.cursor()
+    cursor.execute("""
+        SELECT aws_role_arn, aws_region
+        FROM ativos WHERE id = ? AND usuario_id = ?
+    """, (ativo_id, usuario_id))
+    return cursor.fetchone()

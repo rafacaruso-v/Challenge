@@ -11,10 +11,14 @@ import re
 from Scanners.owaspzap import rodar_zap
 from Scanners.semgrep import rodar_semgrep
 from Scanners.trivy import rodar_trivy
-from LLMs.gemini import analisar_vulnerabilidades
+from CloudAws.cspm import run_cspm_scan
+from LLMs.gemini import analisar_vulnerabilidades, formatar_achados_cspm, formatar_achados_iac
+from Scanners.checkov import rodar_checkov
 from Database.db import (
     criar_tabela,
     salvar_ativo,
+    salvar_ativo_cloud,
+    buscar_role_arn_aws,
     listar_ativos_db,
     listar_alertas_ativos,
     resolver_alerta,
@@ -103,10 +107,12 @@ st.markdown(
     .logo-img {{ width: 250px; filter: drop-shadow(0px 0px 12px rgba(168,85,247,0.3)); }}
     #titulo-principal {{
         font-size: 50px; font-weight: 800;
-        background: linear-gradient(90deg, #7c3aed, #a855f7, #c084fc, #e9d5ff);
+        background: linear-gradient(90deg, #7c3aed, #a855f7, #c084fc, #e9d5ff, #a855f7, #7c3aed);
+        background-size: 200% auto;
         -webkit-background-clip: text; -webkit-text-fill-color: transparent;
         letter-spacing: 2px; margin-bottom: 5px;
         text-shadow: 0px 0px 25px rgba(168,85,247,0.35);
+        animation: gradientShift 6s ease infinite;
     }}
     p, label, div {{ color: var(--text-color); transition: 0.2s ease; }}
     .stTextInput input, .stSelectbox div[data-baseweb="select"] {{
@@ -119,9 +125,34 @@ st.markdown(
         background: linear-gradient(90deg, #7c3aed, #a855f7) !important;
         color: white !important; border: none !important;
         border-radius: 10px; height: 48px; width: 100%;
-        font-weight: 700; transition: 0.3s ease;
+        font-weight: 700; transition: transform 0.2s ease, box-shadow 0.3s ease;
     }}
-    .vuln-card {{ border-radius: 12px; padding: 16px 20px; margin-bottom: 14px; border-left: 5px solid; }}
+    .stButton button:hover {{
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(168,85,247,0.4);
+    }}
+    .stButton button:active {{
+        transform: translateY(0px);
+    }}
+    @keyframes fadeSlideIn {{
+        from {{ opacity: 0; transform: translateY(12px); }}
+        to   {{ opacity: 1; transform: translateY(0); }}
+    }}
+    @keyframes gradientShift {{
+        0%   {{ background-position: 0% center; }}
+        50%  {{ background-position: 100% center; }}
+        100% {{ background-position: 0% center; }}
+    }}
+    .vuln-card {{ border-radius: 12px; padding: 16px 20px; margin-bottom: 14px; border-left: 5px solid;
+        animation: fadeSlideIn 0.45s ease-out both; }}
+    .vuln-card:nth-child(1) {{ animation-delay: 0.05s; }}
+    .vuln-card:nth-child(2) {{ animation-delay: 0.10s; }}
+    .vuln-card:nth-child(3) {{ animation-delay: 0.15s; }}
+    .vuln-card:nth-child(4) {{ animation-delay: 0.20s; }}
+    .kpi-card {{ transition: transform 0.25s ease, box-shadow 0.25s ease; }}
+    .kpi-card:hover {{ transform: translateY(-4px); box-shadow: 0 8px 24px rgba(168,85,247,0.2); }}
+    .stSpinner > div {{ border-top-color: #a855f7 !important; border-right-color: #a855f7 !important; }}
+    .nav-link {{ transition: all 0.25s ease !important; }}
     .vuln-card.critico {{ background: rgba(255,75,75,0.08);  border-color: #ff4b4b; }}
     .vuln-card.alto    {{ background: rgba(255,140,0,0.08);  border-color: #ff8c00; }}
     .vuln-card.medio   {{ background: rgba(255,215,0,0.08);  border-color: #ffd700; }}
@@ -333,11 +364,33 @@ def _render_cards(conteudo: str):
         i += 3
 
 def _parse_blocos(texto_completo):
-    sast_dast = sca = fp = relatorio = ""
+    """
+    Retorna (sast_dast, sca, cspm, iac, fp, relatorio).
+    Mantido compatível com formatos antigos (sem bloco CSPM/IaC).
+    """
+    sast_dast = sca = cspm = iac = fp = relatorio = ""
     if "---VULNS_SAST_DAST---" in texto_completo:
         sast_dast = texto_completo.split("---VULNS_SAST_DAST---")[1].split("---VULNS_SCA---")[0].strip()
         resto_sca = texto_completo.split("---VULNS_SCA---")[1]
-        if "---VULNS_FP---" in resto_sca:
+
+        if "---VULNS_CSPM---" in resto_sca:
+            sca = resto_sca.split("---VULNS_CSPM---")[0].strip()
+            resto_cspm = resto_sca.split("---VULNS_CSPM---")[1]
+
+            if "---VULNS_IAC---" in resto_cspm:
+                cspm = resto_cspm.split("---VULNS_IAC---")[0].strip()
+                resto_iac = resto_cspm.split("---VULNS_IAC---")[1]
+                if "---VULNS_FP---" in resto_iac:
+                    iac = resto_iac.split("---VULNS_FP---")[0].strip()
+                    fp  = resto_iac.split("---VULNS_FP---")[1].split("---RELATORIO---")[0].strip()
+                else:
+                    iac = resto_iac.split("---RELATORIO---")[0].strip()
+            elif "---VULNS_FP---" in resto_cspm:
+                cspm = resto_cspm.split("---VULNS_FP---")[0].strip()
+                fp   = resto_cspm.split("---VULNS_FP---")[1].split("---RELATORIO---")[0].strip()
+            else:
+                cspm = resto_cspm.split("---RELATORIO---")[0].strip()
+        elif "---VULNS_FP---" in resto_sca:
             sca = resto_sca.split("---VULNS_FP---")[0].strip()
             fp  = resto_sca.split("---VULNS_FP---")[1].split("---RELATORIO---")[0].strip()
         else:
@@ -358,7 +411,7 @@ def _parse_blocos(texto_completo):
         sast_dast = texto_completo
     if "---RELATORIO---" in texto_completo:
         relatorio = texto_completo.split("---RELATORIO---")[1].strip()
-    return sast_dast, sca, fp, relatorio
+    return sast_dast, sca, cspm, iac, fp, relatorio
 
 def _render_sast_dast(conteudo: str):
     if "---DIVISOR---" in conteudo:
@@ -373,11 +426,21 @@ def _render_sast_dast(conteudo: str):
     else:
         _render_cards(conteudo)
 
-def _exibir_abas(tipo, sast_dast_conteudo, sca_conteudo):
+def _exibir_abas(tipo, sast_dast_conteudo, sca_conteudo, cspm_conteudo="", iac_conteudo=""):
     if tipo == "Repositório":
-        aba_sast, aba_sca = st.tabs(["🔬 Relatório SAST", "📦 Relatório SCA"])
-        with aba_sast: _render_sast_dast(sast_dast_conteudo)
-        with aba_sca:  _render_cards(sca_conteudo)
+        tem_iac = iac_conteudo and "[NIVEL:" in iac_conteudo
+        if tem_iac:
+            aba_sast, aba_sca, aba_iac = st.tabs(["🔬 Relatório SAST", "📦 Relatório SCA", "🏗️ Relatório IaC"])
+            with aba_sast: _render_sast_dast(sast_dast_conteudo)
+            with aba_sca:  _render_cards(sca_conteudo)
+            with aba_iac:  _render_cards(iac_conteudo)
+        else:
+            aba_sast, aba_sca = st.tabs(["🔬 Relatório SAST", "📦 Relatório SCA"])
+            with aba_sast: _render_sast_dast(sast_dast_conteudo)
+            with aba_sca:  _render_cards(sca_conteudo)
+    elif tipo == "Conta Cloud (AWS)":
+        aba_cspm, = st.tabs(["🌥️ Relatório CSPM (AWS)"])
+        with aba_cspm: _render_cards(cspm_conteudo)
     else:
         bloco_dast = sast_dast_conteudo.split("---DIVISOR---")[1].strip() if "---DIVISOR---" in sast_dast_conteudo else sast_dast_conteudo
         aba_dast, = st.tabs(["🌐 Relatório DAST"])
@@ -445,7 +508,8 @@ if selecionado == "Dashboard":
 
     if ativos:
         df = pd.DataFrame(ativos, columns=[
-            'id','usuario_id','nome','tipo','url','ambiente','criticidade','score','analise','ultima_analise'
+        'id', 'usuario_id', 'nome', 'tipo', 'url', 'ambiente', 'criticidade',
+        'score', 'analise', 'ultima_analise', 'aws_role_arn', 'aws_region'
         ])
         df = df[df['criticidade'] != 'Erro']
         df['criticidade'] = df['criticidade'].replace('Alto', 'Alta')
@@ -461,7 +525,7 @@ if selecionado == "Dashboard":
 
             def card_kpi(titulo, valor, cor, icone, subtext):
                 st.markdown(f"""
-                    <div style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.1);
+                    <div class="kpi-card" style="background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.1);
                         border-left:5px solid {cor}; padding:20px; border-radius:12px;
                         backdrop-filter:blur(10px); margin-bottom:20px;">
                         <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -556,13 +620,78 @@ if selecionado == "Dashboard":
 elif selecionado == "Análises":
     st.markdown("<div style='font-size:32px; font-weight:700; margin-bottom:20px; color:var(--text-color);'>Análise de Ativo</div>", unsafe_allow_html=True)
 
-    nome     = st.text_input("Nome do ativo")
-    tipo     = st.selectbox("Tipo do ativo", ["API", "Aplicação", "Repositório"], filter_mode=None)
-    url      = st.text_input("URL / Caminho do ativo")
+    nome = st.text_input("Nome do ativo")
+    tipo = st.selectbox("Tipo do ativo", ["API", "Aplicação", "Repositório", "Conta Cloud (AWS)"], filter_mode=None)
+
+    aws_role_arn = None
+    aws_region = None
+    url = None
+
+    if tipo == "Conta Cloud (AWS)":
+        st.caption(
+            "Para escanear uma conta AWS, é necessário criar uma IAM Role dedicada via CloudFormation "
+            "(template disponível em `CloudAws/templates/aspm-cspm-role.yaml`). A role concede apenas "
+            "acesso de leitura (policy `SecurityAudit`) e nenhuma credencial de longa duração é armazenada — "
+            "a plataforma usa AssumeRole para obter credenciais temporárias a cada varredura."
+        )
+        aws_role_arn = st.text_input("ARN da Role (ex: arn:aws:iam::123456789012:role/ASPM-CSPM-ScannerRole)")
+        aws_region = st.text_input("Região", value="us-east-1")
+    else:
+        url = st.text_input("URL / Caminho do ativo")
+
     ambiente = st.selectbox("Ambiente", ["Produção", "Homologação", "Desenvolvimento"], filter_mode=None)
 
     if st.button("🔍 Iniciar Análise"):
-        if not url.strip():
+        if tipo == "Conta Cloud (AWS)":
+            if not aws_role_arn or not aws_role_arn.strip():
+                st.error("❌ Informe o ARN da Role.")
+            else:
+                registrar_log(usuario_id, nome_usuario,
+                    acao="Scan Iniciado",
+                    detalhe=f"Role ARN: {aws_role_arn}",
+                    nivel="INFORMATIVO",
+                    aplicacao=nome or aws_role_arn,
+                    ambiente=ambiente,
+                    origem="Scanner - CSPM AWS")
+                with st.spinner("Executando varredura de postura AWS (CSPM)..."):
+                    try:
+                        achados = run_cspm_scan(aws_role_arn.strip(), aws_region.strip() or "us-east-1")
+                        texto_cspm = formatar_achados_cspm(achados)
+
+                        crit, score, analise = analisar_vulnerabilidades(
+                            tipo="Conta Cloud (AWS)",
+                            url=aws_role_arn.strip(),
+                            ambiente=ambiente,
+                            resultado_sast="",
+                            resultado_dast="",
+                            resultado_sca="",
+                            resultado_cspm=texto_cspm,
+                        )
+
+                        if crit == "Erro":
+                            st.error("❌ Erro na análise da IA. O ativo não foi salvo.")
+                        else:
+                            salvar_ativo_cloud(
+                                usuario_id, nome, ambiente, crit, score, analise,
+                                aws_role_arn.strip(), aws_region.strip() or "us-east-1"
+                            )
+                            registrar_log(usuario_id, nome_usuario,
+                                acao="Scan Concluído",
+                                detalhe=f"Score: {score} | Criticidade: {crit} | {len(achados)} achado(s)",
+                                nivel="CRÍTICO" if crit == "Crítica" else "ALTO" if crit == "Alta" else "MÉDIO" if crit == "Média" else "BAIXO",
+                                aplicacao=nome or aws_role_arn,
+                                ambiente=ambiente,
+                                origem="Scanner - CSPM AWS")
+                            st.success("✅ Varredura CSPM concluída!")
+                            st.metric("Risk Score", score)
+                            sast_dast_c, sca_c, cspm_c, iac_c, fp_c, rel_c = _parse_blocos(analise)
+                            st.markdown("<br><h3>📋 Resultados Detalhados</h3>", unsafe_allow_html=True)
+                            _exibir_abas(tipo, sast_dast_c, sca_c, cspm_c, iac_c)
+                            _exibir_relatorio_e_fp(rel_c, fp_c)
+                    except Exception as e:
+                        st.error(f"❌ Erro na varredura CSPM: {e}")
+
+        elif not url or not url.strip():
             st.error("❌ URL ou Caminho inválido.")
         elif tipo in ["API", "Aplicação"] and not url.strip().lower().startswith(("http://", "https://")):
             st.error("❌ URL inválida. Para os tipos 'API' e 'Aplicação', informe uma URL válida iniciando com http:// ou https://")
@@ -579,6 +708,9 @@ elif selecionado == "Análises":
                     res_sast = rodar_semgrep(url) if tipo == "Repositório"         else ""
                     res_dast = rodar_zap(url, tipo=tipo) if tipo in ["API", "Aplicação"] else ""
                     res_sca  = rodar_trivy(url)    if tipo == "Repositório"        else ""
+
+                    res_iac_bruto = rodar_checkov(url) if tipo == "Repositório" else []
+                    res_iac = formatar_achados_iac(res_iac_bruto)
 
                     if res_dast == "ERRO_PROXY_ZAP":
                         st.error("❌ Erro ao conectar no OWASP ZAP.")
@@ -600,7 +732,7 @@ elif selecionado == "Análises":
                         st.error(f"❌ Erro no Trivy: {res_sca.replace('ERRO:', '').strip()}")
                         st.stop()
 
-                    crit, score, analise = analisar_vulnerabilidades(tipo, url, ambiente, res_sast, res_dast, res_sca)
+                    crit, score, analise = analisar_vulnerabilidades(tipo, url, ambiente, res_sast, res_dast, res_sca, resultado_iac=res_iac)
 
                     if crit == "Erro":
                         st.error("❌ Erro na análise da IA. O ativo não foi salvo.")
@@ -615,9 +747,9 @@ elif selecionado == "Análises":
                             origem=f"Scanner - {tipo}")
                         st.success("✅ Análise concluída!")
                         st.metric("Risk Score", score)
-                        sast_dast_c, sca_c, fp_c, rel_c = _parse_blocos(analise)
+                        sast_dast_c, sca_c, cspm_c, iac_c, fp_c, rel_c = _parse_blocos(analise)
                         st.markdown("<br><h3>📋 Resultados Detalhados</h3>", unsafe_allow_html=True)
-                        _exibir_abas(tipo, sast_dast_c, sca_c)
+                        _exibir_abas(tipo, sast_dast_c, sca_c, cspm_c, iac_c)
                         _exibir_relatorio_e_fp(rel_c, fp_c)
                 except Exception as e:
                     st.error(f"Erro inesperado: {e}")
@@ -670,7 +802,10 @@ elif selecionado == "Ativos":
             with col_titulo:
                 with st.expander(f"🔎 {ativo_nome} - {a[6]}"):
                     st.write(f"**Tipo:** {a[3]} | **Ambiente:** {a[5]} | **Score:** {a[7]}")
-                    st.write(f"**URL:** {a[4]}")
+                    if a[3] == "Conta Cloud (AWS)":
+                        st.write(f"**Role ARN:** {a[4]}")
+                    else:
+                        st.write(f"**URL:** {a[4]}")
             with col_lixeira:
                 if st.button("🗑️", key=f"btn_excluir_{ativo_id}", help="Excluir ativo"):
                     _modal_confirmar_exclusao(ativo_id, ativo_nome, ativo_ambiente)
@@ -688,8 +823,8 @@ elif selecionado == "Vulnerabilidades":
         if ativo_selecionado:
             dados_ativo = opcoes_ativos[ativo_selecionado]
             try:
-                sast_dast_c, sca_c, _, _ = _parse_blocos(dados_ativo[8])
-                _exibir_abas(dados_ativo[3], sast_dast_c, sca_c)
+                sast_dast_c, sca_c, cspm_c, iac_c, _, _ = _parse_blocos(dados_ativo[8])
+                _exibir_abas(dados_ativo[3], sast_dast_c, sca_c, cspm_c, iac_c)
             except IndexError:
                 st.warning("⚠️ O texto da análise está corrompido ou em formato antigo.")
     else:
@@ -703,7 +838,7 @@ elif selecionado == "Relatórios":
         ativo_sel = st.selectbox("Selecione o ativo:", options=list(opcoes_ativos.keys()), filter_mode=None)
         if ativo_sel:
             dados_ativo = opcoes_ativos[ativo_sel]
-            _, _, _, rel_c = _parse_blocos(dados_ativo[8])
+            _, _, _, _, _, rel_c = _parse_blocos(dados_ativo[8])
             if rel_c:
                 st.markdown(rel_c)
                 from gerar_pdf import gerar_pdf_relatorio

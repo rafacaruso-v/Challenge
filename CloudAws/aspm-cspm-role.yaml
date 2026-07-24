@@ -1,0 +1,36 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Role de somente leitura para varredura de postura de seguranca (CSPM)
+  pela plataforma ASPM. Utiliza a policy gerenciada SecurityAudit.
+
+Parameters:
+  ASPMHubAccountId:
+    Type: String
+    Description: Account ID da conta AWS da plataforma ASPM (fornecido pela ASPM)
+  ExternalId:
+    Type: String
+    Description: External ID fornecido pela plataforma ASPM (protege contra confused deputy)
+
+Resources:
+  ASPMCspmScannerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ASPM-CSPM-ScannerRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${ASPMHubAccountId}:root'
+            Action: 'sts:AssumeRole'
+            Condition:
+              StringEquals:
+                'sts:ExternalId': !Ref ExternalId
+      ManagedPolicyArns:
+        - 'arn:aws:iam::aws:policy/SecurityAudit'
+      MaxSessionDuration: 3600
+
+Outputs:
+  RoleArn:
+    Description: ARN da role criada - cole este valor no cadastro do ativo na plataforma ASPM
+    Value: !GetAtt ASPMCspmScannerRole.Arn

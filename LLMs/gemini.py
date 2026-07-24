@@ -43,6 +43,16 @@ class AnaliseVulnerabilidadeSchema(BaseModel):
     medios:   list[str] = Field(description="Lista de CVEs Médios do SCA. Mesmo formato. Se não houver, retorne lista vazia.")
     baixos:   list[str] = Field(description="Lista de CVEs Baixos do SCA. Mesmo formato. Se não houver, retorne lista vazia.")
 
+    criticos_cspm: list[str] = Field(description="Lista de achados CRÍTICOS de postura de nuvem (CSPM/AWS). Formato: 'Recurso: descrição breve do problema de configuração'. Se não houver ou CSPM for IGNORADO, retorne lista vazia.")
+    altos_cspm:    list[str] = Field(description="Lista de achados ALTOS de postura de nuvem (CSPM/AWS). Mesmo formato. Se não houver ou CSPM for IGNORADO, retorne lista vazia.")
+    medios_cspm:   list[str] = Field(description="Lista de achados MÉDIOS de postura de nuvem (CSPM/AWS). Mesmo formato. Se não houver ou CSPM for IGNORADO, retorne lista vazia.")
+    baixos_cspm:   list[str] = Field(description="Lista de achados BAIXOS de postura de nuvem (CSPM/AWS). Mesmo formato. Se não houver ou CSPM for IGNORADO, retorne lista vazia.")
+
+    criticos_iac: list[str] = Field(description="Lista de achados CRÍTICOS de Infraestrutura como Código (IaC/Checkov - CloudFormation/Terraform). Formato: 'Recurso: descrição breve do problema de configuração'. Se não houver ou IaC for IGNORADO, retorne lista vazia.")
+    altos_iac:    list[str] = Field(description="Lista de achados ALTOS de IaC (Checkov). Mesmo formato. Se não houver ou IaC for IGNORADO, retorne lista vazia.")
+    medios_iac:   list[str] = Field(description="Lista de achados MÉDIOS de IaC (Checkov). Mesmo formato. Se não houver ou IaC for IGNORADO, retorne lista vazia.")
+    baixos_iac:   list[str] = Field(description="Lista de achados BAIXOS de IaC (Checkov). Mesmo formato. Se não houver ou IaC for IGNORADO, retorne lista vazia.")
+
     falsos_positivos_confirmados: list[str] = Field(description="Lista de achados (SAST/DAST/SCA) que você analisou e concluiu serem FALSOS POSITIVOS confirmados — ou seja, o padrão textual sugere risco, mas o código/contexto comprova que não há vulnerabilidade real explorável (ex: valor validado por whitelist antes de uso, dado nunca alcança input externo, biblioteca não é chamada de forma insegura). Formato: 'TipoAchado: explicação técnica de por que é seguro, arquivo/linha afetada'. Um achado listado aqui NÃO deve aparecer em nenhuma das listas de criticidade (criticos_sast, altos_sast, etc). Se não houver nenhum, retorne lista vazia.")
 
     explicacao_executiva: str = Field(description="Análise de postura de segurança macro e descritiva para o relatório executivo.")
@@ -82,13 +92,6 @@ def _sanitizar_texto(texto: str) -> str:
 
 
 def _agrupar_por_proximidade(itens_com_linha: list, distancia_maxima: int = 3) -> list:
-    """
-    Recebe uma lista de dicts com pelo menos a chave 'linha' (int) e
-    agrupa em clusters onde a distância entre linhas consecutivas é
-    menor ou igual a distancia_maxima. Isso evita fundir achados do
-    mesmo check_id que estão em partes completamente diferentes do
-    arquivo (ex: linha 19 e linha 89 nunca devem virar um só item).
-    """
     itens_ordenados = sorted(itens_com_linha, key=lambda x: x["linha"])
     clusters = []
     cluster_atual = []
@@ -174,18 +177,55 @@ def deduplicate_sast(resultado_sast_raw: str) -> str:
     return json.dumps(resultado, ensure_ascii=False)
 
 
-def analisar_vulnerabilidades(tipo, url, ambiente, resultado_sast, resultado_dast, resultado_sca=""):
+def formatar_achados_cspm(achados: list) -> str:
+    if not achados:
+        return "[]"
+
+    linhas = []
+    for a in achados:
+        crit = a.get("criticidade", "INFO")
+        recurso = a.get("recurso", "desconhecido")
+        descricao = a.get("descricao", "")
+        linhas.append(f"[{crit}] {recurso}: {descricao}")
+
+    return "\n".join(linhas)
+
+
+def formatar_achados_iac(achados: list) -> str:
+    if not achados:
+        return "[]"
+
+    linhas = []
+    for a in achados:
+        crit = a.get("criticidade", "INFO")
+        recurso = a.get("recurso", "desconhecido")
+        descricao = a.get("descricao", "")
+        linhas.append(f"[{crit}] {recurso}: {descricao}")
+
+    return "\n".join(linhas)
+
+
+def analisar_vulnerabilidades(tipo, url, ambiente, resultado_sast, resultado_dast, resultado_sca="", resultado_cspm="", resultado_iac=""):
 
     if not CHAVES_API:
         return "Erro", 0, "Erro na análise da IA: Nenhuma chave de API encontrada. Verifique o arquivo .env (GEMINI_KEY_1, GEMINI_KEY_2, GEMINI_KEY_3, GEMINI_KEY_4)."
 
     e_runtime = tipo in ("API", "Aplicação")
+    e_cloud = tipo == "Conta Cloud (AWS)"
 
     descartados_total = []
 
-    if e_runtime:
+    if e_cloud:
+        sast_final = "IGNORADO (O ativo é uma Conta Cloud, análise de código não aplicável)"
+        sca_final  = "IGNORADO (O ativo é uma Conta Cloud, análise de dependências não aplicável)"
+        dast_final = "IGNORADO (O ativo é uma Conta Cloud, análise dinâmica/runtime não aplicável)"
+        iac_final  = "IGNORADO (O ativo é uma Conta Cloud, análise de IaC não aplicável)"
+        cspm_final = resultado_cspm if (resultado_cspm and resultado_cspm != "[]") else "LIMPO"
+    elif e_runtime:
         sast_final = "IGNORADO (O ativo é uma URL/Runtime, análise de código não aplicável)"
         sca_final  = "IGNORADO (O ativo é uma URL/Runtime, análise de dependências não aplicável)"
+        cspm_final = "IGNORADO (O ativo não é uma Conta Cloud, análise de postura de nuvem não aplicável)"
+        iac_final  = "IGNORADO (O ativo é uma URL/Runtime, análise de IaC não aplicável)"
 
         dast_filtrado, descartados_dast = reduzir_falsos_positivos_dast(resultado_dast)
         descartados_total.extend(descartados_dast)
@@ -202,6 +242,8 @@ def analisar_vulnerabilidades(tipo, url, ambiente, resultado_sast, resultado_das
         sca_final = sca_filtrado if (sca_filtrado and sca_filtrado != "[]") else "LIMPO"
 
         dast_final = "IGNORADO (O ativo é um Repositório, análise dinâmica/runtime não aplicável)"
+        cspm_final = "IGNORADO (O ativo não é uma Conta Cloud, análise de postura de nuvem não aplicável)"
+        iac_final  = resultado_iac if (resultado_iac and resultado_iac != "[]") else "IGNORADO (Nenhum arquivo de IaC - CloudFormation/Terraform - encontrado no repositório)"
 
     ferramentas_utilizadas = []
     if not sast_final.startswith("IGNORADO"):
@@ -210,11 +252,17 @@ def analisar_vulnerabilidades(tipo, url, ambiente, resultado_sast, resultado_das
         ferramentas_utilizadas.append("Trivy (SCA)")
     if not dast_final.startswith("IGNORADO"):
         ferramentas_utilizadas.append("OWASP ZAP (DAST)")
+    if not cspm_final.startswith("IGNORADO"):
+        ferramentas_utilizadas.append("CSPM (AWS - S3/IAM/EC2/Conta)")
+    if not iac_final.startswith("IGNORADO"):
+        ferramentas_utilizadas.append("Checkov (IaC)")
     ferramentas_str = ", ".join(ferramentas_utilizadas) if ferramentas_utilizadas else "Nenhuma"
 
     sast_final = _sanitizar_texto(sast_final)
     sca_final  = _sanitizar_texto(sca_final)
     dast_final = _sanitizar_texto(dast_final)
+    cspm_final = _sanitizar_texto(cspm_final)
+    iac_final  = _sanitizar_texto(iac_final)
 
     prompt = f"""
 Você é um Especialista Sênior em AppSec. Analise os resultados para o ativo: {tipo}.
@@ -253,6 +301,22 @@ Antes de classificar qualquer finding, siga estas etapas:
    essa reclassificação a menos que o snippet comprove a validação de forma inequívoca —
    na dúvida, mantenha o achado na lista de criticidade normal.
 
+5. ACHADOS DE CSPM (Postura de Nuvem AWS): Os achados de CSPM vêm já pré-classificados por
+   criticidade (CRITICO/ALTO/MEDIO/BAIXO/INFO) por checks determinísticos que consultam
+   diretamente a API da AWS (ex: bucket S3 público, usuário IAM sem MFA, Security Group aberto
+   para 0.0.0.0/0). Preserve a criticidade original atribuída pelo check ao classificar nos
+   campos criticos_cspm/altos_cspm/medios_cspm/baixos_cspm, a menos que o Fator Ambiente
+   (ver abaixo) justifique elevar a severidade. Achados com criticidade "INFO" (ex: erros de
+   permissão ao consultar algum serviço) não devem aparecer em nenhuma lista de criticidade.
+
+6. ACHADOS DE IaC (Infraestrutura como Código - Checkov): Os achados de IaC vêm já
+   pré-classificados por criticidade por checks determinísticos do Checkov, rodados
+   estaticamente contra arquivos CloudFormation/Terraform do próprio repositório (não
+   contra infraestrutura já provisionada — isso é o papel do CSPM). Preserve a criticidade
+   original ao classificar nos campos criticos_iac/altos_iac/medios_iac/baixos_iac, a menos
+   que o Fator Ambiente justifique ajuste. Achados "INFO" (ex: erro ao rodar o parser em
+   algum arquivo) não devem aparecer em nenhuma lista de criticidade.
+
 ==================================================
 AVISO DE SEGURANÇA — DADOS NÃO CONFIÁVEIS
 ==================================================
@@ -287,6 +351,16 @@ DAST (Dinâmico - ZAP):
 {dast_final}
 <<<DADOS_FIM>>>
 
+CSPM (Postura de Nuvem - AWS):
+<<<DADOS_INICIO>>>
+{cspm_final}
+<<<DADOS_FIM>>>
+
+IaC (Infraestrutura como Código - Checkov):
+<<<DADOS_INICIO>>>
+{iac_final}
+<<<DADOS_FIM>>>
+
 ==================================================
 MATRIZ DE CRITICIDADE E SCORE (PADRÃO CVSS v3.1)
 ==================================================
@@ -304,23 +378,33 @@ Exemplos de referência CVSS para guiar sua classificação:
 CRÍTICO (9.0+): SQL Injection com acesso direto ao banco, RCE (Execução Remota de Código),
   Desserialização Insegura com RCE confirmado (pickle, yaml.load), Broken Access Control total,
   credenciais expostas em runtime, Debug Mode em PRODUÇÃO,
-  XSS Stored/Persistent (persiste no banco e afeta todos os usuários).
+  XSS Stored/Persistent (persiste no banco e afeta todos os usuários),
+  Bucket S3 público com dados sensíveis, usuário IAM com AdministratorAccess sem MFA,
+  conta root AWS sem MFA, template IaC provisionando recurso público/sem criptografia
+  em ambiente de Produção.
 
 ALTO (7.0-8.9): XSS Reflected (requer link malicioso, afeta um usuário por vez),
   XSS DOM-based (executado no cliente), SSRF, Autenticação Quebrada, Hardcoded Credentials
   em código-fonte, Injeção de Comandos sem shell direto, CVEs CRITICAL/HIGH com exploit público,
-  SSTI com RCE confirmado ou identificado em ambiente de Produção.
+  SSTI com RCE confirmado ou identificado em ambiente de Produção,
+  Security Group liberando portas administrativas (22/3389) para 0.0.0.0/0,
+  usuário IAM sem MFA, instância RDS/EC2 publicamente acessível sem necessidade,
+  IAM Role definida em IaC com trust policy excessivamente permissiva (ex: Principal: *).
 
 MÉDIO (4.0-6.9): XSS Self-XSS (afeta apenas o próprio usuário, sem vetor externo real),
   Open Redirect, Debug Mode em Homologação/Desenvolvimento, CSRF,
   assert usado para controle de acesso, ReDoS, yaml.load sem RCE confirmado,
   exposição de caminhos internos, SHA256 sem salt, CVEs MEDIUM sem exploit público,
-  SSTI sem RCE confirmado ou identificado em ambiente de Desenvolvimento/Homologação.
+  SSTI sem RCE confirmado ou identificado em ambiente de Desenvolvimento/Homologação,
+  política de senha da conta AWS abaixo do recomendado, bucket S3 sem criptografia em repouso,
+  recurso IaC sem tags de identificação/governança, sem logging habilitado.
 
 BAIXO (0.1-3.9): MD5/SHA1 em checksums não críticos, Cookie sem flags (httponly/secure/samesite),
   random() não criptográfico, divulgação de versão de servidor, ausência ou má configuração
   de security headers, incluindo CSP com diretivas inseguras (unsafe-inline, unsafe-eval,
-  sem fallback), HSTS não configurado e X-Frame-Options ausente.
+  sem fallback), HSTS não configurado e X-Frame-Options ausente,
+  bucket S3 sem versionamento habilitado, instância RDS sem Multi-AZ,
+  recurso IaC sem descrição/documentação, nomenclatura fora do padrão.
 
 REGRA XSS: Classifique XSS pelo tipo antes de qualquer outra análise.
   Stored → Crítico. Reflected ou DOM-based → Alto. Self-XSS → Médio.
@@ -354,12 +438,14 @@ REGRA DE CONSOLIDAÇÃO SEMÂNTICA (aplica-se a QUALQUER tipo de vulnerabilidade
 REGRA DE CÁLCULO DE CRITICIDADE E SCORE (CONDIÇÕES)
 ==================================================
 1. Teto Máximo (Highest Watermark): O score e a criticidade GERAL do ativo são definidos pela
-   vulnerabilidade de maior severidade encontrada entre todos os scanners aplicáveis.
+   vulnerabilidade de maior severidade encontrada entre todos os scanners aplicáveis
+   (incluindo CSPM e IaC, quando aplicável).
    Exemplo: SAST Médio + SCA Alto → Score final = Alto (70-89).
 
-2. Fator Ambiente: Se uma falha de configuração perigosa (como Modo Debug) for encontrada em
-   ambiente de "Produção", eleve para Crítico. Se for em "Desenvolvimento" ou "Homologação",
-   mantenha como Médio.
+2. Fator Ambiente: Se uma falha de configuração perigosa (como Modo Debug, ou um recurso
+   AWS/IaC publicamente exposto) for encontrada em ambiente de "Produção", eleve para
+   Crítico. Se for em "Desenvolvimento" ou "Homologação", mantenha a severidade original
+   do check.
 
 3. SCA — severidade pelo CVE real: Para CVEs do Trivy, use sempre a severidade oficial do CVE
    (CRITICAL, HIGH, MEDIUM, LOW), nunca infira pelo nome do ataque descrito no CVE.
@@ -378,55 +464,74 @@ REGRAS DE NEGÓCIO
 2. Se DAST estiver como 'IGNORADO', todos os campos criticos_dast, altos_dast, medios_dast,
    baixos_dast devem ser listas vazias.
 
-3. Somente indique sistema seguro (Score 0) se TODOS os scanners aplicáveis retornarem
+3. Se CSPM estiver como 'IGNORADO', todos os campos criticos_cspm, altos_cspm, medios_cspm,
+   baixos_cspm devem ser listas vazias.
+
+4. Se IaC estiver como 'IGNORADO', todos os campos criticos_iac, altos_iac, medios_iac,
+   baixos_iac devem ser listas vazias.
+
+5. Somente indique sistema seguro (Score 0) se TODOS os scanners aplicáveis retornarem
    'LIMPO' ou 'IGNORADO'.
 
-4. SQL Injection e XSS Crítico = Score 90-100, SOMENTE se reportados pelo SAST. Nunca infira
+6. SQL Injection e XSS Crítico = Score 90-100, SOMENTE se reportados pelo SAST. Nunca infira
    essas falhas a partir de resultados do SCA.
 
-5. SCA detecta APENAS CVEs em bibliotecas/dependências. Mesmo que o nome do CVE contenha
+7. SCA detecta APENAS CVEs em bibliotecas/dependências. Mesmo que o nome do CVE contenha
    termos como "SQL Injection", "XSS" ou "RCE", ele deve ser classificado pela severidade
    real do CVE no Trivy (CRITICAL, HIGH, MEDIUM, LOW), nunca elevado para Score 90-100
    por inferência do nome do ataque.
 
-6. CVEs com severidade CRITICAL ou HIGH no SCA com exploit público confirmado = Alto (70-89).
+8. CVEs com severidade CRITICAL ou HIGH no SCA com exploit público confirmado = Alto (70-89).
    Eleve para Crítico (90-100) SOMENTE se o CVE permitir execução remota de código no servidor
    sem autenticação E houver exploit público ativo e confirmado. Ambas as condições são
    obrigatórias para elevação.
 
-7. CVEs com severidade MEDIUM no SCA sem exploit público = mínimo Médio (40-69).
+9. CVEs com severidade MEDIUM no SCA sem exploit público = mínimo Médio (40-69).
 
-8. Para o SCA: classifique cada CVE nos campos 'criticos', 'altos', 'medios' ou 'baixos' de
-   acordo com sua severidade INDIVIDUAL. Cada campo é uma lista onde cada item segue o formato:
-   'NomeBiblioteca: tipo do problema (CVE-XXXX, CVE-YYYY)'. Agrupe CVEs da mesma biblioteca
-   e mesmo tipo em um único item da lista.
+10. Para o SCA: classifique cada CVE nos campos 'criticos', 'altos', 'medios' ou 'baixos' de
+    acordo com sua severidade INDIVIDUAL. Cada campo é uma lista onde cada item segue o formato:
+    'NomeBiblioteca: tipo do problema (CVE-XXXX, CVE-YYYY)'. Agrupe CVEs da mesma biblioteca
+    e mesmo tipo em um único item da lista.
 
-9. Para o SAST: classifique cada vulnerabilidade nos campos criticos_sast, altos_sast,
-   medios_sast ou baixos_sast de acordo com sua severidade.
-   AGRUPAMENTO OBRIGATÓRIO: Se a lista de findings contiver problemas da mesma família,
-   categoria, ou mesma causa raiz (ver REGRA DE CONSOLIDAÇÃO SEMÂNTICA acima) no MESMO
-   arquivo, você DEVE consolidá-los em um único item, combinando todos os números de
-   linhas afetadas.
-   Formato (máximo 25 palavras por item): 'TipoVuln: descrição breve consolidada do problema e arquivo/linhas afetadas'.
-   OBRIGATÓRIO: escreva SEMPRE em português.
+11. Para o SAST: classifique cada vulnerabilidade nos campos criticos_sast, altos_sast,
+    medios_sast ou baixos_sast de acordo com sua severidade.
+    AGRUPAMENTO OBRIGATÓRIO: Se a lista de findings contiver problemas da mesma família,
+    categoria, ou mesma causa raiz (ver REGRA DE CONSOLIDAÇÃO SEMÂNTICA acima) no MESMO
+    arquivo, você DEVE consolidá-los em um único item, combinando todos os números de
+    linhas afetadas.
+    Formato (máximo 25 palavras por item): 'TipoVuln: descrição breve consolidada do problema e arquivo/linhas afetadas'.
+    OBRIGATÓRIO: escreva SEMPRE em português.
 
-10. Para o DAST: classifique cada vulnerabilidade nos campos criticos_dast, altos_dast,
+12. Para o DAST: classifique cada vulnerabilidade nos campos criticos_dast, altos_dast,
     medios_dast ou baixos_dast de acordo com sua severidade. Formato (máximo 20 palavras por item):
     'NomeVuln: explicação breve do problema em português. Endpoint: /caminho/da/pagina'.
     OBRIGATÓRIO: escreva SEMPRE em português. NUNCA inclua URLs completas, parâmetros de scanner,
     payloads codificados ou query strings longas — use apenas o caminho relativo do endpoint
     (ex: /search, /login, /Register.asp).
 
-11. PROIBIDO classificar tudo como Crítico. Avalie cada finding individualmente pelo seu impacto
+13. Para o CSPM: classifique cada achado nos campos criticos_cspm, altos_cspm, medios_cspm ou
+    baixos_cspm de acordo com a criticidade já atribuída pelo check (preservando-a, salvo
+    ajuste pelo Fator Ambiente). Formato (máximo 20 palavras por item):
+    'Recurso: descrição breve do problema de configuração em português'.
+    OBRIGATÓRIO: escreva SEMPRE em português, mesmo que o achado bruto venha em outro idioma.
+
+14. Para o IaC: classifique cada achado nos campos criticos_iac, altos_iac, medios_iac ou
+    baixos_iac de acordo com a criticidade já atribuída pelo Checkov (preservando-a, salvo
+    ajuste pelo Fator Ambiente). Formato (máximo 20 palavras por item):
+    'Recurso: descrição breve do problema de configuração em português'.
+    OBRIGATÓRIO: escreva SEMPRE em português, mesmo que o achado bruto venha em outro idioma.
+
+15. PROIBIDO classificar tudo como Crítico. Avalie cada finding individualmente pelo seu impacto
     real. Exemplo: um CVE que causa apenas DoS pertence ao campo 'medios', nunca a 'criticos',
     mesmo que o score geral do ativo seja 95.
 
-12. No campo 'explicacao_executiva' (Análise de Postura de Segurança), cite SOMENTE as ferramentas listadas na seção
+16. No campo 'explicacao_executiva' (Análise de Postura de Segurança), cite SOMENTE as ferramentas listadas na seção
     "FERRAMENTAS EFETIVAMENTE UTILIZADAS NESTA ANÁLISE" acima. NUNCA mencione, sugira ou faça
     referência a ferramentas que não constam nessa lista (ex: não cite Semgrep se o ativo for
-    uma API/Aplicação, não cite OWASP ZAP se o ativo for um Repositório). Se uma recomendação
-    genérica de segurança não estiver ligada a nenhuma das ferramentas usadas, descreva a ação
-    sem atribuí-la a uma ferramenta específica.
+    uma API/Aplicação, não cite OWASP ZAP se o ativo for um Repositório, não cite CSPM se o
+    ativo não for uma Conta Cloud, não cite Checkov/IaC se nenhum arquivo de IaC foi encontrado
+    no repositório). Se uma recomendação genérica de segurança não estiver ligada
+    a nenhuma das ferramentas usadas, descreva a ação sem atribuí-la a uma ferramenta específica.
 
 CONTEXTO: Ambiente de {ambiente}.
 Retorne SOMENTE JSON seguindo estritamente o schema fornecido.
@@ -482,9 +587,25 @@ Retorne SOMENTE JSON seguindo estritamente o schema fornecido.
                 "Baixo":   ("🟢", "baixo",   _dedup(dados_json.get("baixos",   []))),
             }
 
+            niveis_cspm = {
+                "Crítico": ("🔴", "critico", _dedup(dados_json.get("criticos_cspm", []))),
+                "Alto":    ("🟠", "alto",    _dedup(dados_json.get("altos_cspm",    []))),
+                "Médio":   ("🟡", "medio",   _dedup(dados_json.get("medios_cspm",   []))),
+                "Baixo":   ("🟢", "baixo",   _dedup(dados_json.get("baixos_cspm",   []))),
+            }
+
+            niveis_iac = {
+                "Crítico": ("🔴", "critico", _dedup(dados_json.get("criticos_iac", []))),
+                "Alto":    ("🟠", "alto",    _dedup(dados_json.get("altos_iac",    []))),
+                "Médio":   ("🟡", "medio",   _dedup(dados_json.get("medios_iac",   []))),
+                "Baixo":   ("🟢", "baixo",   _dedup(dados_json.get("baixos_iac",   []))),
+            }
+
             bloco_sast = _montar_bloco_nivel(niveis_sast) or "✅ Nenhuma vulnerabilidade encontrada pelo SAST.\n"
             bloco_dast = _montar_bloco_nivel(niveis_dast) or "✅ Nenhuma vulnerabilidade encontrada pelo DAST.\n"
             bloco_sca  = _montar_bloco_nivel(niveis_sca)  or "✅ Nenhuma vulnerabilidade de dependências encontrada.\n"
+            bloco_cspm = _montar_bloco_nivel(niveis_cspm) or "✅ Nenhum achado de postura de nuvem encontrado.\n"
+            bloco_iac  = _montar_bloco_nivel(niveis_iac)  or "✅ Nenhum achado de infraestrutura como código encontrado.\n"
 
             fp_confirmados_ia = _dedup(dados_json.get("falsos_positivos_confirmados", []))
 
@@ -513,6 +634,10 @@ Retorne SOMENTE JSON seguindo estritamente o schema fornecido.
 {bloco_dast.strip()}
 ---VULNS_SCA---
 {bloco_sca.strip()}
+---VULNS_CSPM---
+{bloco_cspm.strip()}
+---VULNS_IAC---
+{bloco_iac.strip()}
 ---VULNS_FP---
 {bloco_fp}
 ---RELATORIO---
@@ -524,15 +649,19 @@ Retorne SOMENTE JSON seguindo estritamente o schema fornecido.
 """
             n_critico = (
                 len(niveis_sast["Crítico"][2]) + len(niveis_dast["Crítico"][2]) + len(niveis_sca["Crítico"][2])
+                + len(niveis_cspm["Crítico"][2]) + len(niveis_iac["Crítico"][2])
             )
             n_alto = (
                 len(niveis_sast["Alto"][2]) + len(niveis_dast["Alto"][2]) + len(niveis_sca["Alto"][2])
+                + len(niveis_cspm["Alto"][2]) + len(niveis_iac["Alto"][2])
             )
             n_medio = (
                 len(niveis_sast["Médio"][2]) + len(niveis_dast["Médio"][2]) + len(niveis_sca["Médio"][2])
+                + len(niveis_cspm["Médio"][2]) + len(niveis_iac["Médio"][2])
             )
             n_baixo = (
                 len(niveis_sast["Baixo"][2]) + len(niveis_dast["Baixo"][2]) + len(niveis_sca["Baixo"][2])
+                + len(niveis_cspm["Baixo"][2]) + len(niveis_iac["Baixo"][2])
             )
 
             score_ml = calcular_score_ml(n_critico, n_alto, n_medio, n_baixo, ambiente)
