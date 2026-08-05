@@ -5,7 +5,11 @@ from datetime import datetime
 
 def conectar():
     conexao = sqlite3.connect("aspm.db", check_same_thread=False)
+    # Necessário para que FOREIGN KEY ... ON DELETE CASCADE funcione de fato.
+    # SQLite vem com isso desligado por padrão em cada conexão nova.
+    conexao.execute("PRAGMA foreign_keys = ON")
     return conexao
+
 
 def criar_tabela():
     conexao = conectar()
@@ -19,22 +23,6 @@ def criar_tabela():
             senha_hash TEXT NOT NULL,
             nome TEXT,
             criado_em TEXT
-        )
-    """)
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS ativos (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            usuario_id INTEGER NOT NULL,
-            nome TEXT,
-            tipo TEXT,
-            url TEXT,
-            ambiente TEXT,
-            criticidade TEXT,
-            score INTEGER,
-            analise TEXT,
-            ultima_analise TEXT,
-            FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
         )
     """)
 
@@ -57,19 +45,6 @@ def criar_tabela():
             usuario_id INTEGER NOT NULL,
             score_medio REAL,
             data TEXT,
-            FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
-        )
-    """)
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS historico_ativos (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            ativo_id INTEGER NOT NULL,
-            usuario_id INTEGER NOT NULL,
-            nome TEXT,
-            score INTEGER,
-            data TEXT,
-            FOREIGN KEY (ativo_id) REFERENCES ativos (id),
             FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
         )
     """)
@@ -98,10 +73,8 @@ def criar_tabela():
     """)
 
     for sql in [
-        "ALTER TABLE ativos ADD COLUMN usuario_id INTEGER",
         "ALTER TABLE alertas ADD COLUMN usuario_id INTEGER",
         "ALTER TABLE historico ADD COLUMN usuario_id INTEGER",
-        "ALTER TABLE ativos ADD COLUMN ultima_analise TEXT",
         "ALTER TABLE logs ADD COLUMN nivel TEXT",
         "ALTER TABLE logs ADD COLUMN aplicacao TEXT",
         "ALTER TABLE logs ADD COLUMN ambiente TEXT",
@@ -110,10 +83,6 @@ def criar_tabela():
         "ALTER TABLE usuarios ADD COLUMN mfa_code TEXT",
         "ALTER TABLE usuarios ADD COLUMN mfa_expira TEXT",
         "ALTER TABLE usuarios ADD COLUMN mfa_tentativas INTEGER DEFAULT 0",
-        # CSPM (AWS) - abordagem via AssumeRole: guardamos apenas o ARN da role
-        # e a regiao. Nao ha credenciais de longa duracao armazenadas aqui.
-        "ALTER TABLE ativos ADD COLUMN aws_role_arn TEXT",
-        "ALTER TABLE ativos ADD COLUMN aws_region TEXT",
     ]:
         try:
             cursor.execute(sql)
@@ -126,7 +95,242 @@ def criar_tabela():
     """)
 
     conexao.commit()
+
+    _migrar_para_modelo_ativo_componente(conexao)
+    _criar_estrutura_ativos_v2(conexao)
+    _criar_view_resumo(conexao)
+
     criar_admin_padrao()
+
+
+def _migrar_para_modelo_ativo_componente(conexao):
+    """
+    Migra o schema antigo (1 linha de 'ativos' = 1 tipo de artefato) para o
+    novo modelo (ativo pai + N componentes). So roda a migracao se detectar
+    a tabela antiga 'ativos' com a coluna 'tipo' (schema legado). Se o banco
+    ja estiver no schema novo, ou for um banco novo do zero, nao faz nada
+    aqui - quem cria as tabelas novas e _criar_estrutura_ativos_v2.
+
+    Idempotente: pode ser chamada toda vez que a app sobe, sem duplicar dados.
+    """
+    cursor = conexao.cursor()
+
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='ativos'")
+    tabela_ativos_existe = cursor.fetchone() is not None
+
+    if not tabela_ativos_existe:
+        return  # banco novo, nada para migrar
+
+    cursor.execute("PRAGMA table_info(ativos)")
+    colunas_ativos = {row[1] for row in cursor.fetchall()}
+
+    schema_e_legado = "tipo" in colunas_ativos and "url" in colunas_ativos
+    if not schema_e_legado:
+        return  # ja esta no schema novo
+
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='ativos_old'")
+    ja_migrado = cursor.fetchone() is not None
+    if ja_migrado:
+        return  # migracao ja rodou antes (ativos_old ja existe), nao repete
+
+    # 1. Renomeia a tabela antiga para preservar os dados originais como backup
+    cursor.execute("ALTER TABLE ativos RENAME TO ativos_old")
+
+    # 2. Cria as tabelas novas (mesma definicao de _criar_estrutura_ativos_v2,
+    #    duplicada aqui de proposito para a migracao ser auto-contida e nao
+    #    depender de ordem de chamada entre funcoes internas)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS ativos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            usuario_id INTEGER NOT NULL,
+            nome TEXT NOT NULL,
+            descricao TEXT,
+            dono TEXT,
+            criticidade_negocio TEXT,
+            criado_em TEXT NOT NULL,
+            atualizado_em TEXT,
+            FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS ativo_componentes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ativo_id INTEGER NOT NULL,
+            usuario_id INTEGER NOT NULL,
+            tipo TEXT NOT NULL,
+            ambiente TEXT NOT NULL,
+            url TEXT,
+            aws_role_arn TEXT,
+            aws_region TEXT,
+            criticidade TEXT,
+            score INTEGER,
+            analise TEXT,
+            ultima_analise TEXT,
+            criado_em TEXT NOT NULL,
+            FOREIGN KEY (ativo_id) REFERENCES ativos (id) ON DELETE CASCADE,
+            FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS historico_componentes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            componente_id INTEGER NOT NULL,
+            ativo_id INTEGER NOT NULL,
+            usuario_id INTEGER NOT NULL,
+            score INTEGER,
+            data TEXT NOT NULL,
+            FOREIGN KEY (componente_id) REFERENCES ativo_componentes (id) ON DELETE CASCADE,
+            FOREIGN KEY (ativo_id) REFERENCES ativos (id) ON DELETE CASCADE,
+            FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
+        )
+    """)
+
+    # 3. Copia cada linha antiga como um Ativo pai novo, mantendo o mesmo id
+    #    (evita ter que remapear referencias em alertas/logs, que usam nome).
+    cursor.execute("""
+        INSERT INTO ativos (id, usuario_id, nome, descricao, dono, criticidade_negocio, criado_em, atualizado_em)
+        SELECT
+            id,
+            usuario_id,
+            nome,
+            NULL,
+            NULL,
+            NULL,
+            COALESCE(ultima_analise, datetime('now')),
+            ultima_analise
+        FROM ativos_old
+    """)
+
+    # 4. Cada linha antiga vira exatamente 1 componente vinculado ao ativo pai
+    #    de mesmo id criado no passo anterior.
+    cursor.execute("""
+        INSERT INTO ativo_componentes (
+            ativo_id, usuario_id, tipo, ambiente, url, aws_role_arn, aws_region,
+            criticidade, score, analise, ultima_analise, criado_em
+        )
+        SELECT
+            id, usuario_id, tipo, ambiente, url, aws_role_arn, aws_region,
+            criticidade, score, analise, ultima_analise,
+            COALESCE(ultima_analise, datetime('now'))
+        FROM ativos_old
+    """)
+
+    # 5. Migra o historico por ativo (historico_ativos) para o historico por
+    #    componente, associando pelo ativo_id (na migracao inicial a relacao
+    #    e 1:1, entao o join direto e seguro).
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='historico_ativos'")
+    if cursor.fetchone():
+        cursor.execute("""
+            INSERT INTO historico_componentes (componente_id, ativo_id, usuario_id, score, data)
+            SELECT
+                c.id, c.ativo_id, c.usuario_id, h.score, h.data
+            FROM historico_ativos h
+            JOIN ativo_componentes c ON c.ativo_id = h.ativo_id
+        """)
+
+    conexao.commit()
+
+
+def _criar_estrutura_ativos_v2(conexao):
+    """
+    Garante que as tabelas do modelo novo existam mesmo em um banco criado
+    do zero (sem nunca ter passado pelo schema legado).
+    """
+    cursor = conexao.cursor()
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS ativos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            usuario_id INTEGER NOT NULL,
+            nome TEXT NOT NULL,
+            descricao TEXT,
+            dono TEXT,
+            criticidade_negocio TEXT,
+            criado_em TEXT NOT NULL,
+            atualizado_em TEXT,
+            FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS ativo_componentes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ativo_id INTEGER NOT NULL,
+            usuario_id INTEGER NOT NULL,
+            tipo TEXT NOT NULL CHECK (tipo IN ('Repositório', 'API', 'Aplicação', 'Conta Cloud (AWS)')),
+            ambiente TEXT NOT NULL,
+            url TEXT,
+            aws_role_arn TEXT,
+            aws_region TEXT,
+            criticidade TEXT,
+            score INTEGER,
+            analise TEXT,
+            ultima_analise TEXT,
+            criado_em TEXT NOT NULL,
+            FOREIGN KEY (ativo_id) REFERENCES ativos (id) ON DELETE CASCADE,
+            FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS historico_componentes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            componente_id INTEGER NOT NULL,
+            ativo_id INTEGER NOT NULL,
+            usuario_id INTEGER NOT NULL,
+            score INTEGER,
+            data TEXT NOT NULL,
+            FOREIGN KEY (componente_id) REFERENCES ativo_componentes (id) ON DELETE CASCADE,
+            FOREIGN KEY (ativo_id) REFERENCES ativos (id) ON DELETE CASCADE,
+            FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
+        )
+    """)
+
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_componentes_ativo ON ativo_componentes(ativo_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_componentes_usuario ON ativo_componentes(usuario_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_historico_comp_data ON historico_componentes(componente_id, data)")
+
+    conexao.commit()
+
+
+def _criar_view_resumo(conexao):
+    """
+    View com o score/criticidade agregados por ativo, seguindo a regra
+    'pior caso': se qualquer componente do ativo for Critico, o ativo
+    aparece como Critico no resumo (e assim por diante, em ordem de
+    severidade). Isso reflete que um atacante so precisa de 1 ponto fraco
+    para comprometer a aplicacao inteira.
+    """
+    cursor = conexao.cursor()
+    cursor.execute("DROP VIEW IF EXISTS vw_ativos_resumo")
+    cursor.execute("""
+        CREATE VIEW vw_ativos_resumo AS
+        SELECT
+            a.id,
+            a.usuario_id,
+            a.nome,
+            a.descricao,
+            a.dono,
+            a.criticidade_negocio,
+            COUNT(c.id) AS total_componentes,
+            MIN(CASE WHEN c.criticidade != 'Erro' THEN c.score END) AS score_minimo,
+            MAX(CASE WHEN c.criticidade != 'Erro' THEN c.score END) AS score_maximo,
+            ROUND(AVG(CASE WHEN c.criticidade != 'Erro' THEN c.score END), 0) AS score_medio,
+            CASE
+                WHEN SUM(CASE WHEN c.criticidade = 'Crítica' THEN 1 ELSE 0 END) > 0 THEN 'Crítica'
+                WHEN SUM(CASE WHEN c.criticidade = 'Alta'    THEN 1 ELSE 0 END) > 0 THEN 'Alta'
+                WHEN SUM(CASE WHEN c.criticidade = 'Média'   THEN 1 ELSE 0 END) > 0 THEN 'Média'
+                WHEN SUM(CASE WHEN c.criticidade = 'Baixa'   THEN 1 ELSE 0 END) > 0 THEN 'Baixa'
+                ELSE 'Sem análise'
+            END AS criticidade_agregada,
+            MAX(c.ultima_analise) AS ultima_analise
+        FROM ativos a
+        LEFT JOIN ativo_componentes c ON c.ativo_id = a.id
+        GROUP BY a.id
+    """)
+    conexao.commit()
 
 
 def criar_admin_padrao():
@@ -338,47 +542,106 @@ def validar_codigo_mfa(usuario_id: int, codigo_digitado: str):
     return True, "Código validado com sucesso."
 
 
+# =====================================================================
+# ATIVOS (entidade pai — a aplicação/negócio)
+# =====================================================================
 
-def salvar_ativo(usuario_id, nome, tipo, url, ambiente, criticidade, score, analise):
+def criar_ativo(usuario_id, nome, descricao=None, dono=None, criticidade_negocio=None):
+    """
+    Cria o Ativo pai (sem nenhum componente ainda). Retorna o id gerado,
+    que deve ser usado em seguida para adicionar componentes com
+    adicionar_componente().
+    """
     conexao = conectar()
     cursor = conexao.cursor()
+    agora = datetime.now().strftime("%d/%m/%Y %H:%M")
     cursor.execute("""
-        INSERT INTO ativos (
-            usuario_id, nome, tipo, url, ambiente, criticidade, score, analise, ultima_analise
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (usuario_id, nome, tipo, url, ambiente, criticidade, score, analise,
-          datetime.now().strftime("%d/%m/%Y %H:%M")))
+        INSERT INTO ativos (usuario_id, nome, descricao, dono, criticidade_negocio, criado_em, atualizado_em)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (usuario_id, nome, descricao, dono, criticidade_negocio, agora, agora))
     conexao.commit()
+    return cursor.lastrowid
 
-def atualizar_ativo(usuario_id, nome, url, criticidade, score, analise):
+def atualizar_ativo(usuario_id, ativo_id, nome=None, descricao=None, dono=None, criticidade_negocio=None):
     conexao = conectar()
     cursor = conexao.cursor()
-    cursor.execute("""
-        UPDATE ativos
-        SET criticidade = ?, score = ?, analise = ?, ultima_analise = ?
-        WHERE usuario_id = ? AND nome = ? AND url = ?
-    """, (criticidade, score, analise, datetime.now().strftime("%d/%m/%Y %H:%M"),
-          usuario_id, nome, url))
+    campos, valores = [], []
+    for coluna, valor in [
+        ("nome", nome), ("descricao", descricao),
+        ("dono", dono), ("criticidade_negocio", criticidade_negocio),
+    ]:
+        if valor is not None:
+            campos.append(f"{coluna} = ?")
+            valores.append(valor)
+    if not campos:
+        return
+    campos.append("atualizado_em = ?")
+    valores.append(datetime.now().strftime("%d/%m/%Y %H:%M"))
+    valores.extend([ativo_id, usuario_id])
+    cursor.execute(f"""
+        UPDATE ativos SET {", ".join(campos)}
+        WHERE id = ? AND usuario_id = ?
+    """, valores)
     conexao.commit()
 
 def listar_ativos_db(usuario_id):
-    conexao = conectar()
-    cursor = conexao.cursor()
-    cursor.execute("SELECT * FROM ativos WHERE usuario_id = ?", (usuario_id,))
-    return cursor.fetchall()
+    """
+    Retorna os Ativos (pais) do usuário já com criticidade/score agregados
+    a partir dos componentes (regra 'pior caso'), via vw_ativos_resumo.
 
-def listar_ativos_todos():
+    Colunas retornadas, nesta ordem:
+    0: id                    5: total_componentes
+    1: usuario_id            6: score_minimo
+    2: nome                  7: score_maximo
+    3: descricao             8: score_medio
+    4: dono                  9: criticidade_negocio
+                              10: criticidade_agregada
+                              11: ultima_analise
+    """
     conexao = conectar()
     cursor = conexao.cursor()
     cursor.execute("""
-        SELECT ativos.*, usuarios.username
-        FROM ativos
-        JOIN usuarios ON ativos.usuario_id = usuarios.id
-        ORDER BY ativos.id DESC
+        SELECT id, usuario_id, nome, descricao, dono, total_componentes,
+               score_minimo, score_maximo, score_medio, criticidade_negocio,
+               criticidade_agregada, ultima_analise
+        FROM vw_ativos_resumo
+        WHERE usuario_id = ?
+        ORDER BY id DESC
+    """, (usuario_id,))
+    return cursor.fetchall()
+
+def buscar_ativo(usuario_id, ativo_id):
+    conexao = conectar()
+    cursor = conexao.cursor()
+    cursor.execute("""
+        SELECT id, usuario_id, nome, descricao, dono, total_componentes,
+               score_minimo, score_maximo, score_medio, criticidade_negocio,
+               criticidade_agregada, ultima_analise
+        FROM vw_ativos_resumo
+        WHERE usuario_id = ? AND id = ?
+    """, (usuario_id, ativo_id))
+    return cursor.fetchone()
+
+def listar_ativos_todos():
+    """Usado no Painel Admin: todos os ativos de todos os usuários, com o
+    username do dono no final da tupla."""
+    conexao = conectar()
+    cursor = conexao.cursor()
+    cursor.execute("""
+        SELECT r.id, r.usuario_id, r.nome, r.descricao, r.dono, r.total_componentes,
+               r.score_minimo, r.score_maximo, r.score_medio, r.criticidade_negocio,
+               r.criticidade_agregada, r.ultima_analise, usuarios.username
+        FROM vw_ativos_resumo r
+        JOIN usuarios ON r.usuario_id = usuarios.id
+        ORDER BY r.id DESC
     """)
     return cursor.fetchall()
 
 def deletar_ativo(usuario_id, ativo_id):
+    """
+    Remove o ativo e, em cascata (via FOREIGN KEY ... ON DELETE CASCADE),
+    todos os seus componentes e o histórico associado.
+    """
     conexao = conectar()
     cursor = conexao.cursor()
     cursor.execute("SELECT nome FROM ativos WHERE id = ? AND usuario_id = ?", (ativo_id, usuario_id))
@@ -389,10 +652,127 @@ def deletar_ativo(usuario_id, ativo_id):
     conexao.commit()
 
 
+# =====================================================================
+# ATIVO_COMPONENTES (entidade filha — repositório / API / aplicação / cloud)
+# =====================================================================
+
+def adicionar_componente(
+    usuario_id, ativo_id, tipo, ambiente,
+    url=None, criticidade=None, score=None, analise=None,
+    aws_role_arn=None, aws_region=None
+):
+    """
+    Vincula um novo componente técnico a um Ativo já existente. Pode ser
+    chamado quantas vezes for preciso para o mesmo ativo_id (ex: repo +
+    instância de produção + instância de homologação).
+    """
+    conexao = conectar()
+    cursor = conexao.cursor()
+    cursor.execute("""
+        INSERT INTO ativo_componentes (
+            ativo_id, usuario_id, tipo, ambiente, url, aws_role_arn, aws_region,
+            criticidade, score, analise, ultima_analise, criado_em
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        ativo_id, usuario_id, tipo, ambiente, url, aws_role_arn, aws_region,
+        criticidade, score, analise,
+        datetime.now().strftime("%d/%m/%Y %H:%M"),
+        datetime.now().strftime("%d/%m/%Y %H:%M"),
+    ))
+    conexao.commit()
+    return cursor.lastrowid
+
+def atualizar_componente(usuario_id, componente_id, criticidade, score, analise):
+    """Atualiza o resultado de uma nova análise/scan sobre um componente
+    já existente (ex: re-scan agendado)."""
+    conexao = conectar()
+    cursor = conexao.cursor()
+    cursor.execute("""
+        UPDATE ativo_componentes
+        SET criticidade = ?, score = ?, analise = ?, ultima_analise = ?
+        WHERE id = ? AND usuario_id = ?
+    """, (
+        criticidade, score, analise,
+        datetime.now().strftime("%d/%m/%Y %H:%M"),
+        componente_id, usuario_id
+    ))
+    conexao.commit()
+
+def listar_componentes(usuario_id, ativo_id):
+    """Todos os componentes vinculados a um Ativo específico."""
+    conexao = conectar()
+    cursor = conexao.cursor()
+    cursor.execute("""
+        SELECT id, ativo_id, usuario_id, tipo, ambiente, url, aws_role_arn, aws_region,
+               criticidade, score, analise, ultima_analise, criado_em
+        FROM ativo_componentes
+        WHERE usuario_id = ? AND ativo_id = ?
+        ORDER BY id ASC
+    """, (usuario_id, ativo_id))
+    return cursor.fetchall()
+
+def listar_componentes_usuario(usuario_id):
+    """
+    Todos os componentes do usuário, de todos os ativos — útil para telas
+    como 'Vulnerabilidades' que hoje trabalham em cima de uma lista plana
+    de artefatos escaneados, independente de agrupamento por ativo pai.
+    Inclui o nome do ativo pai para exibição.
+    """
+    conexao = conectar()
+    cursor = conexao.cursor()
+    cursor.execute("""
+        SELECT c.id, c.ativo_id, c.usuario_id, c.tipo, c.ambiente, c.url,
+               c.aws_role_arn, c.aws_region, c.criticidade, c.score, c.analise,
+               c.ultima_analise, c.criado_em, a.nome AS ativo_nome
+        FROM ativo_componentes c
+        JOIN ativos a ON a.id = c.ativo_id
+        WHERE c.usuario_id = ?
+        ORDER BY c.id DESC
+    """, (usuario_id,))
+    return cursor.fetchall()
+
+def buscar_componente(usuario_id, componente_id):
+    conexao = conectar()
+    cursor = conexao.cursor()
+    cursor.execute("""
+        SELECT c.id, c.ativo_id, c.usuario_id, c.tipo, c.ambiente, c.url,
+               c.aws_role_arn, c.aws_region, c.criticidade, c.score, c.analise,
+               c.ultima_analise, c.criado_em, a.nome AS ativo_nome
+        FROM ativo_componentes c
+        JOIN ativos a ON a.id = c.ativo_id
+        WHERE c.usuario_id = ? AND c.id = ?
+    """, (usuario_id, componente_id))
+    return cursor.fetchone()
+
+def deletar_componente(usuario_id, componente_id):
+    conexao = conectar()
+    cursor = conexao.cursor()
+    cursor.execute("DELETE FROM ativo_componentes WHERE id = ? AND usuario_id = ?", (componente_id, usuario_id))
+    conexao.commit()
+
+def buscar_role_arn_aws(usuario_id, componente_id):
+    """Agora busca pelo id do COMPONENTE (não mais do ativo pai), já que o
+    ARN/região vivem em ativo_componentes."""
+    conexao = conectar()
+    cursor = conexao.cursor()
+    cursor.execute("""
+        SELECT aws_role_arn, aws_region
+        FROM ativo_componentes WHERE id = ? AND usuario_id = ?
+    """, (componente_id, usuario_id))
+    return cursor.fetchone()
+
+
+# =====================================================================
+# HISTÓRICO GERAL (score médio do usuário — usado no gráfico do Dashboard)
+# =====================================================================
+
 def registrar_historico(usuario_id):
     conexao = conectar()
     cursor = conexao.cursor()
-    cursor.execute("SELECT score FROM ativos WHERE usuario_id = ? AND criticidade != 'Erro'", (usuario_id,))
+    cursor.execute("""
+        SELECT score FROM ativo_componentes
+        WHERE usuario_id = ? AND criticidade != 'Erro' AND score IS NOT NULL
+    """, (usuario_id,))
     scores = [r[0] for r in cursor.fetchall()]
     if not scores:
         return
@@ -423,26 +803,34 @@ def listar_historico(usuario_id, minutos=60):
     return list(reversed(filtrados))
 
 
-def registrar_historico_ativo(usuario_id, ativo_id, nome, score):
+# =====================================================================
+# HISTÓRICO POR COMPONENTE (substitui o antigo historico_ativos)
+# =====================================================================
+
+def registrar_historico_componente(usuario_id, componente_id, ativo_id, score):
     conexao = conectar()
     cursor = conexao.cursor()
     cursor.execute("""
-        INSERT INTO historico_ativos (ativo_id, usuario_id, nome, score, data)
+        INSERT INTO historico_componentes (componente_id, ativo_id, usuario_id, score, data)
         VALUES (?, ?, ?, ?, ?)
-    """, (ativo_id, usuario_id, nome, score, datetime.now().strftime("%d/%m/%Y %H:%M:%S")))
+    """, (componente_id, ativo_id, usuario_id, score, datetime.now().strftime("%d/%m/%Y %H:%M:%S")))
     conexao.commit()
 
-def listar_historico_ativo(usuario_id, ativo_id, limite=50):
+def listar_historico_componente(usuario_id, componente_id, limite=50):
     conexao = conectar()
     cursor = conexao.cursor()
     cursor.execute("""
-        SELECT score, data FROM historico_ativos
-        WHERE usuario_id = ? AND ativo_id = ?
+        SELECT score, data FROM historico_componentes
+        WHERE usuario_id = ? AND componente_id = ?
         ORDER BY id ASC
         LIMIT ?
-    """, (usuario_id, ativo_id, limite))
+    """, (usuario_id, componente_id, limite))
     return cursor.fetchall()
 
+
+# =====================================================================
+# ALERTAS (sem mudanças de schema — continuam ligados por nome do ativo)
+# =====================================================================
 
 def salvar_alerta(usuario_id, ativo_nome, tipo, mensagem):
     conexao = conectar()
@@ -475,33 +863,3 @@ def resolver_alerta(usuario_id, alerta_id):
     cursor = conexao.cursor()
     cursor.execute("UPDATE alertas SET resolvido = 1 WHERE id = ? AND usuario_id = ?", (alerta_id, usuario_id))
     conexao.commit()
-
-
-def salvar_ativo_cloud(usuario_id, nome, ambiente, criticidade, score, analise,
-                        aws_role_arn, aws_region):
-    """
-    Salva um ativo do tipo 'Conta Cloud (AWS)'. Diferente dos demais tipos,
-    nao ha 'url' tradicional - o identificador do recurso escaneado e o
-    ARN da IAM Role assumida via AssumeRole. Nao ha credenciais de longa
-    duracao armazenadas (sem Access Key / Secret Key).
-    """
-    conexao = conectar()
-    cursor = conexao.cursor()
-    cursor.execute("""
-        INSERT INTO ativos (
-            usuario_id, nome, tipo, url, ambiente, criticidade, score, analise,
-            ultima_analise, aws_role_arn, aws_region
-        ) VALUES (?, ?, 'Conta Cloud (AWS)', ?, ?, ?, ?, ?, ?, ?, ?)
-    """, (usuario_id, nome, aws_role_arn, ambiente, criticidade, score, analise,
-          datetime.now().strftime("%d/%m/%Y %H:%M"),
-          aws_role_arn, aws_region))
-    conexao.commit()
-
-def buscar_role_arn_aws(usuario_id, ativo_id):
-    conexao = conectar()
-    cursor = conexao.cursor()
-    cursor.execute("""
-        SELECT aws_role_arn, aws_region
-        FROM ativos WHERE id = ? AND usuario_id = ?
-    """, (ativo_id, usuario_id))
-    return cursor.fetchone()

@@ -1,21 +1,31 @@
-from Database.db import listar_ativos_db, listar_logs
-import Auth.auth as auth_module
-import Database.db as db_module
+from datetime import datetime
+from Database.db import listar_ativos_db, listar_logs, listar_usuarios
+
+JANELA_RASTREABILIDADE_DIAS = 30
 
 
-def avaliar_acesso_logico():
-    mfa_implementado  = hasattr(auth_module, "confirmar_mfa") and hasattr(auth_module, "mfa_pendente")
-    rbac_implementado = hasattr(db_module, "atualizar_role_usuario") and hasattr(db_module, "contar_admins")
+def avaliar_acesso_logico(usuario_id):
+    usuarios_db = listar_usuarios()
+    roles_em_uso = {u[4] for u in usuarios_db}
 
-    faltando = []
-    if not mfa_implementado:
-        faltando.append("autenticação multifator (MFA)")
-    if not rbac_implementado:
-        faltando.append("controle de acesso baseado em função (RBAC)")
+    rbac_diferenciado = len(roles_em_uso) > 1
 
-    if not faltando:
-        return "Conforme", "Autenticação multifator e controle de acesso baseado em função implementados na plataforma."
-    return "Não Conforme", f"Recurso(s) ausente(s) na plataforma: {', '.join(faltando)}."
+    if not usuarios_db:
+        return "Não Avaliado", "Nenhum usuário cadastrado na plataforma até o momento."
+
+    if not rbac_diferenciado:
+        return (
+            "Parcialmente Conforme",
+            f"MFA é exigido estruturalmente em todo login. RBAC, porém, não está "
+            f"sendo usado na prática — todos os {len(usuarios_db)} usuário(s) cadastrado(s) "
+            f"possuem a mesma role ('{next(iter(roles_em_uso))}')."
+        )
+
+    return (
+        "Conforme",
+        f"MFA exigido estruturalmente em todo login. RBAC em uso ativo: "
+        f"{len(roles_em_uso)} roles distintas entre os {len(usuarios_db)} usuário(s) cadastrado(s)."
+    )
 
 
 def avaliar_mitigacao_vulnerabilidades(usuario_id):
@@ -24,28 +34,52 @@ def avaliar_mitigacao_vulnerabilidades(usuario_id):
         return "Não Avaliado", "Nenhum ativo cadastrado na plataforma até o momento."
 
     total      = len(ativos)
-    analisados = sum(1 for a in ativos if a[9])
+    analisados = sum(1 for a in ativos if a[10] != 'Sem análise')
 
     if analisados == 0:
-        return "Não Conforme", f"Nenhum dos {total} ativo(s) cadastrado(s) possui análise executada."
+        return "Não Conforme", f"Nenhum dos {total} ativo(s) cadastrado(s) possui componente analisado."
     if analisados == total:
-        return "Conforme", f"Todos os {total} ativo(s) cadastrado(s) possuem cobertura de scanner (SAST/DAST/SCA)."
-    return "Parcialmente Conforme", f"{analisados} de {total} ativo(s) cadastrado(s) possuem análise executada."
+        return "Conforme", f"Todos os {total} ativo(s) cadastrado(s) possuem cobertura de scanner (SAST/DAST/SCA/CSPM/IaC)."
+    return "Parcialmente Conforme", f"{analisados} de {total} ativo(s) cadastrado(s) possuem ao menos um componente analisado."
 
 
 def avaliar_rastreabilidade(usuario_id):
     logs = listar_logs(usuario_id, limite=1)
     if not logs:
         return "Não Conforme", "Nenhum registro de auditoria (audit trail) encontrado para este usuário."
-    return "Conforme", "Audit trail ativo — ações da plataforma e alertas de segurança estão sendo registrados."
+
+    data_str = logs[0][1] 
+    try:
+        data_log_mais_recente = datetime.strptime(data_str, "%d/%m/%Y %H:%M:%S")
+        dias_desde_ultimo_log = (datetime.now() - data_log_mais_recente).days
+    except (ValueError, TypeError):
+        return "Conforme", "Audit trail ativo — ações da plataforma e alertas de segurança estão sendo registrados."
+
+    if dias_desde_ultimo_log > JANELA_RASTREABILIDADE_DIAS:
+        return (
+            "Parcialmente Conforme",
+            f"Audit trail existe, mas o registro mais recente tem {dias_desde_ultimo_log} dia(s) "
+            f"— acima da janela de {JANELA_RASTREABILIDADE_DIAS} dias esperada para uso ativo."
+        )
+
+    return (
+        "Conforme",
+        f"Audit trail ativo — último registro há {dias_desde_ultimo_log} dia(s), "
+        f"dentro da janela de {JANELA_RASTREABILIDADE_DIAS} dias esperada."
+    )
 
 
 def avaliar_avaliacao_riscos(usuario_id):
+    """
+    'score_medio' (índice 8) é o campo agregado correto para saber se o
+    ativo tem risco calculado — no schema antigo isso vivia em a[7],
+    mas com a migração para Ativo + Componentes a posição mudou.
+    """
     ativos = listar_ativos_db(usuario_id)
     if not ativos:
         return "Não Avaliado", "Nenhum ativo cadastrado na plataforma até o momento."
 
-    com_score = sum(1 for a in ativos if a[7] is not None)
+    com_score = sum(1 for a in ativos if a[8] is not None)
     if com_score == 0:
         return "Não Conforme", "Nenhum ativo possui score de risco calculado."
     return "Conforme", f"{com_score} de {len(ativos)} ativo(s) possuem score de risco calculado e classificado por criticidade."
@@ -53,7 +87,7 @@ def avaliar_avaliacao_riscos(usuario_id):
 
 def avaliar_plataforma(usuario_id) -> dict:
 
-    status_acesso,    detalhe_acesso    = avaliar_acesso_logico()
+    status_acesso,    detalhe_acesso    = avaliar_acesso_logico(usuario_id)
     status_mitig,     detalhe_mitig     = avaliar_mitigacao_vulnerabilidades(usuario_id)
     status_rastreio,  detalhe_rastreio  = avaliar_rastreabilidade(usuario_id)
     status_risco,     detalhe_risco     = avaliar_avaliacao_riscos(usuario_id)

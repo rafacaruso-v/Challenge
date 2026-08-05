@@ -1,5 +1,5 @@
 import numpy as np
-from Database.db import listar_historico_ativo
+from Database.db import listar_historico_componente
 
 MINIMO_PONTOS_PARA_ML = 5
 LIMIAR_ANOMALIA_SIMPLES = 20
@@ -55,8 +55,9 @@ def _detectar_anomalia_ml(scores_historicos: list, score_atual: int):
     return False, None
 
 
-def verificar_anomalia_ml(usuario_id: int, ativo_id: int, ativo_nome: str, score_atual: int):
-    historico = listar_historico_ativo(usuario_id, ativo_id, limite=50)
+def verificar_anomalia_ml(usuario_id: int, componente_id: int, identificador_exibicao: str, score_atual: int):
+ 
+    historico = listar_historico_componente(usuario_id, componente_id, limite=50)
     scores_historicos = [h[0] for h in historico if h[0] is not None]
 
     if len(scores_historicos) < MINIMO_PONTOS_PARA_ML:

@@ -16,14 +16,17 @@ from LLMs.gemini import analisar_vulnerabilidades, formatar_achados_cspm, format
 from Scanners.checkov import rodar_checkov
 from Database.db import (
     criar_tabela,
-    salvar_ativo,
-    salvar_ativo_cloud,
-    buscar_role_arn_aws,
+    criar_ativo,
+    adicionar_componente,
     listar_ativos_db,
+    listar_componentes,
+    listar_componentes_usuario,
+    buscar_role_arn_aws,
+    deletar_ativo,
+    deletar_componente,
     listar_alertas_ativos,
     resolver_alerta,
     listar_historico,
-    deletar_ativo,
     get_intervalo_rescan,
     set_intervalo_rescan,
     registrar_log,
@@ -78,6 +81,8 @@ CORES_NIVEL = {
     "BAIXO":       ("#00c853", "#00c85322"),
     "INFORMATIVO": ("#a855f7", "#a855f722"),
 }
+
+TIPOS_COMPONENTE = ["API", "Aplicação", "Repositório", "Conta Cloud (AWS)"]
 
 
 def get_base64_image(image_path):
@@ -364,10 +369,7 @@ def _render_cards(conteudo: str):
         i += 3
 
 def _parse_blocos(texto_completo):
-    """
-    Retorna (sast_dast, sca, cspm, iac, fp, relatorio).
-    Mantido compatível com formatos antigos (sem bloco CSPM/IaC).
-    """
+
     sast_dast = sca = cspm = iac = fp = relatorio = ""
     if "---VULNS_SAST_DAST---" in texto_completo:
         sast_dast = texto_completo.split("---VULNS_SAST_DAST---")[1].split("---VULNS_SCA---")[0].strip()
@@ -499,6 +501,71 @@ def exibir_alertas_banner():
     st.markdown("---")
 
 
+def _executar_scanners_e_analisar(tipo, url, ambiente, aws_role_arn=None, aws_region=None):
+
+    if tipo == "Conta Cloud (AWS)":
+        achados = run_cspm_scan(aws_role_arn.strip(), aws_region.strip() or "us-east-1")
+        texto_cspm = formatar_achados_cspm(achados)
+        crit, score, analise = analisar_vulnerabilidades(
+            tipo="Conta Cloud (AWS)",
+            url=aws_role_arn.strip(),
+            ambiente=ambiente,
+            resultado_sast="",
+            resultado_dast="",
+            resultado_sca="",
+            resultado_cspm=texto_cspm,
+        )
+        return crit, score, analise, len(achados)
+
+    res_sast = res_dast = res_sca = ""
+    res_iac = formatar_achados_iac([])
+
+    if tipo == "Repositório":
+        from Scanners.repo_utils import preparar_repositorio, limpar_repositorio
+
+        try:
+            caminho_local, deve_limpar = preparar_repositorio(url)
+        except RuntimeError as e:
+            st.error(f"❌ {e}")
+            st.stop()
+
+        try:
+            res_sast = rodar_semgrep(caminho_local)
+            res_sca  = rodar_trivy(caminho_local)
+            res_iac_bruto = rodar_checkov(caminho_local)
+            res_iac = formatar_achados_iac(res_iac_bruto)
+        finally:
+            if deve_limpar:
+                limpar_repositorio(caminho_local)
+    elif tipo in ["API", "Aplicação"]:
+        res_dast = rodar_zap(url, tipo=tipo)
+
+    if res_dast == "ERRO_PROXY_ZAP":
+        st.error("❌ Erro ao conectar no OWASP ZAP.")
+        st.stop()
+    if res_dast == "ERRO_OPENAPI_NAO_ENCONTRADO":
+        st.error(
+            "❌ Não foi possível localizar a especificação OpenAPI/Swagger desta API "
+            "nos caminhos comuns (/openapi.json, /swagger.json, /v3/api-docs, etc.). "
+            "Sem essa especificação, a análise de API não pode ser realizada."
+        )
+        st.stop()
+    if res_dast == "ERRO_IMPORT_OPENAPI":
+        st.error("❌ Erro ao importar a especificação OpenAPI/Swagger encontrada. Verifique se ela está acessível e em formato válido.")
+        st.stop()
+    if isinstance(res_sast, str) and res_sast.startswith("ERRO:"):
+        st.error(f"❌ Erro no Semgrep: {res_sast.replace('ERRO:', '').strip()}")
+        st.stop()
+    if isinstance(res_sca, str) and res_sca.startswith("ERRO:"):
+        st.error(f"❌ Erro no Trivy: {res_sca.replace('ERRO:', '').strip()}")
+        st.stop()
+
+    crit, score, analise = analisar_vulnerabilidades(
+        tipo, url, ambiente, res_sast, res_dast, res_sca, resultado_iac=res_iac
+    )
+    return crit, score, analise, None
+
+
 if selecionado == "Dashboard":
     st.markdown("<div><p id='titulo-principal'>ASPM PLATFORM</p></div>", unsafe_allow_html=True)
     st.markdown("<p style='font-size:18px; margin-bottom:40px; opacity:0.8;'>Application Security Posture Management</p>", unsafe_allow_html=True)
@@ -508,20 +575,21 @@ if selecionado == "Dashboard":
 
     if ativos:
         df = pd.DataFrame(ativos, columns=[
-        'id', 'usuario_id', 'nome', 'tipo', 'url', 'ambiente', 'criticidade',
-        'score', 'analise', 'ultima_analise', 'aws_role_arn', 'aws_region'
+            'id', 'usuario_id', 'nome', 'descricao', 'dono', 'total_componentes',
+            'score_minimo', 'score_maximo', 'score_medio', 'criticidade_negocio',
+            'criticidade', 'ultima_analise'
         ])
-        df = df[df['criticidade'] != 'Erro']
-        df['criticidade'] = df['criticidade'].replace('Alto', 'Alta')
 
-        if df.empty:
-            st.info("Nenhum ativo analisado ainda.")
+        df_com_analise = df[df['criticidade'] != 'Sem análise']
+
+        if df_com_analise.empty:
+            st.info("Nenhum ativo com componentes analisados ainda.")
         else:
-            total    = len(df)
-            criticos = len(df[df['criticidade'] == 'Crítica'])
-            altos    = len(df[df['criticidade'] == 'Alta'])
-            medios   = len(df[df['criticidade'] == 'Média'])
-            baixos   = len(df[df['criticidade'] == 'Baixa'])
+            total    = len(df_com_analise)
+            criticos = len(df_com_analise[df_com_analise['criticidade'] == 'Crítica'])
+            altos    = len(df_com_analise[df_com_analise['criticidade'] == 'Alta'])
+            medios   = len(df_com_analise[df_com_analise['criticidade'] == 'Média'])
+            baixos   = len(df_com_analise[df_com_analise['criticidade'] == 'Baixa'])
 
             def card_kpi(titulo, valor, cor, icone, subtext):
                 st.markdown(f"""
@@ -550,7 +618,7 @@ if selecionado == "Dashboard":
             with col_g1:
                 st.markdown("<p style='font-weight:700; font-size:20px;'>Distribuição de Riscos</p>", unsafe_allow_html=True)
                 cores_map = {'Crítica':'#ff4b4b','Alta':'#ff8c00','Média':'#ffd700','Baixa':'#00c853'}
-                df_c = df['criticidade'].value_counts().reset_index()
+                df_c = df_com_analise['criticidade'].value_counts().reset_index()
                 df_c.columns = ['criticidade','count']
                 df_c['label'] = df_c.apply(lambda r: f"{r['criticidade']} ({r['count']})", axis=1)
                 fig = px.pie(df_c, names='label', values='count', hole=0.55, color='criticidade', color_discrete_map=cores_map)
@@ -577,51 +645,104 @@ if selecionado == "Dashboard":
                 st.plotly_chart(fig2, width='content')
 
             with col_g3:
+
                 st.markdown("<p style='font-weight:700; font-size:20px;'>Risco por Ambiente</p>", unsafe_allow_html=True)
-                df_e = df.groupby('ambiente')['score'].mean().round(0).reset_index()
-                fig3 = px.bar(df_e, x='score', y='ambiente', orientation='h', text='score')
-                fig3.update_traces(marker_color='#3b82f6', textposition='outside', texttemplate='%{text}%')
-                fig3.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color="white"),
-                    xaxis=dict(showgrid=False, range=[0,105], ticksuffix="%", tickvals=[0,25,50,75,100], title=""),
-                    yaxis=dict(showgrid=False, title=""), height=300, margin=dict(r=40,l=10,t=10,b=10))
-                st.plotly_chart(fig3, width='content')
+                componentes_usuario = listar_componentes_usuario(usuario_id)
+                if componentes_usuario:
+                    df_comp = pd.DataFrame(componentes_usuario, columns=[
+                        'id', 'ativo_id', 'usuario_id', 'tipo', 'ambiente', 'url',
+                        'aws_role_arn', 'aws_region', 'criticidade', 'score',
+                        'analise', 'ultima_analise', 'criado_em', 'ativo_nome'
+                    ])
+                    df_comp = df_comp[(df_comp['criticidade'].notna()) & (df_comp['criticidade'] != 'Erro')]
+                    if not df_comp.empty:
+                        df_e = df_comp.groupby('ambiente')['score'].mean().round(0).reset_index()
+                        fig3 = px.bar(df_e, x='score', y='ambiente', orientation='h', text='score')
+                        fig3.update_traces(marker_color='#3b82f6', textposition='outside', texttemplate='%{text}%')
+                        fig3.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color="white"),
+                            xaxis=dict(showgrid=False, range=[0,105], ticksuffix="%", tickvals=[0,25,50,75,100], title=""),
+                            yaxis=dict(showgrid=False, title=""), height=300, margin=dict(r=40,l=10,t=10,b=10))
+                        st.plotly_chart(fig3, width='content')
+                    else:
+                        st.info("Sem componentes analisados ainda.")
+                else:
+                    st.info("Sem componentes cadastrados ainda.")
 
             st.markdown("<p style='font-weight:700; font-size:24px; margin-top:30px;'>Ativos Recentes</p>", unsafe_allow_html=True)
             cores_crit = {'Crítica':'#ff4b4b','Alta':'#ff8c00','Média':'#ffd700','Baixa':'#00c853'}
             st.markdown("""
-                <div style="display:grid; grid-template-columns:2fr 1.5fr 1.5fr 1fr 1fr 2fr;
+                <div style="display:grid; grid-template-columns:2.5fr 1fr 1fr 1fr 2fr;
                     padding:10px 16px; background:rgba(255,255,255,0.05); border-radius:8px;
                     font-size:13px; font-weight:700; color:#c084fc; margin-bottom:4px;">
-                    <span>Nome do Ativo</span><span>Tipo</span><span>Ambiente</span>
+                    <span>Nome do Ativo</span><span>Componentes</span>
                     <span>Criticidade</span><span>Risk Score</span><span>Última Análise</span>
                 </div>
             """, unsafe_allow_html=True)
-            for _, row in df.sort_values(by='score', ascending=False).iterrows():
+            score_ordenacao = df_com_analise['score_minimo'].fillna(df_com_analise['score_medio'])
+            for _, row in df_com_analise.assign(_ord=score_ordenacao).sort_values(by='_ord', ascending=False).iterrows():
                 cor    = cores_crit.get(row['criticidade'], '#ffffff')
                 ultima = row['ultima_analise'] if row['ultima_analise'] else '—'
+                score_exibido = row['score_minimo'] if pd.notna(row['score_minimo']) else row['score_medio']
                 st.markdown(f"""
-                    <div style="display:grid; grid-template-columns:2fr 1.5fr 1.5fr 1fr 1fr 2fr;
+                    <div style="display:grid; grid-template-columns:2.5fr 1fr 1fr 1fr 2fr;
                         padding:12px 16px; background:rgba(255,255,255,0.02);
                         border:1px solid rgba(255,255,255,0.06); border-radius:8px;
                         font-size:14px; margin-bottom:4px; align-items:center;">
                         <span style="font-weight:600;">{row['nome']}</span>
-                        <span style="opacity:0.8;">{row['tipo']}</span>
-                        <span style="opacity:0.8;">{row['ambiente']}</span>
+                        <span style="opacity:0.8;">{int(row['total_componentes'])}</span>
                         <span><span style="background:{cor}22; color:{cor}; padding:4px 10px;
                             border-radius:20px; font-size:12px; font-weight:700;
                             border:1px solid {cor}55;">{row['criticidade']}</span></span>
-                        <span style="color:{cor}; font-weight:800; font-size:16px;">{row['score']}</span>
+                        <span style="color:{cor}; font-weight:800; font-size:16px;">{score_exibido}</span>
                         <span style="opacity:0.6; font-size:12px;">{ultima}</span>
                     </div>
                 """, unsafe_allow_html=True)
     else:
-        st.info("Nenhum ativo analisado ainda. Vá para a aba 'Análises' para começar.")
+        st.info("Nenhum ativo cadastrado ainda. Vá para a aba 'Análises' para começar.")
 
 elif selecionado == "Análises":
     st.markdown("<div style='font-size:32px; font-weight:700; margin-bottom:20px; color:var(--text-color);'>Análise de Ativo</div>", unsafe_allow_html=True)
+    st.caption(
+        "Um Ativo representa a aplicação/negócio. Cada Ativo pode ter vários componentes "
+        "vinculados (repositório, instâncias em diferentes ambientes, conta cloud) — assim, "
+        "achados de fontes diferentes ficam correlacionados sob o mesmo contexto."
+    )
 
-    nome = st.text_input("Nome do ativo")
-    tipo = st.selectbox("Tipo do ativo", ["API", "Aplicação", "Repositório", "Conta Cloud (AWS)"], filter_mode=None)
+    ativos_existentes = listar_ativos_db(usuario_id)
+    OPCAO_NOVO = "➕ Criar novo ativo"
+    opcoes_ativo = {OPCAO_NOVO: None}
+    for a in ativos_existentes:
+        opcoes_ativo[f"{a[2]} ({a[10]}, {a[5]} componente(s))"] = a[0]
+
+    escolha_ativo = st.selectbox("Ativo", options=list(opcoes_ativo.keys()), filter_mode=None)
+    ativo_id_selecionado = opcoes_ativo[escolha_ativo]
+
+    if ativo_id_selecionado is None:
+        st.markdown("#### Novo Ativo")
+        novo_nome = st.text_input("Nome do ativo")
+        nova_descricao = st.text_area("Descrição (opcional)", height=100)
+        
+
+        if st.button("Criar Ativo"):
+            if not novo_nome or not novo_nome.strip():
+                st.error("❌ Informe um nome para o ativo.")
+            else:
+                novo_id = criar_ativo(
+                    usuario_id, novo_nome.strip(),
+                    descricao=nova_descricao.strip() or None,
+                )
+                registrar_log(usuario_id, nome_usuario,
+                    acao="Ativo Criado",
+                    detalhe=f"Ativo '{novo_nome}' criado (id {novo_id})",
+                    nivel="INFORMATIVO", aplicacao=novo_nome, ambiente="Todos",
+                    origem="Plataforma")
+                st.success(f"✅ Ativo '{novo_nome}' criado! Selecione-o na lista acima para adicionar componentes.")
+                st.rerun()
+        st.stop()
+
+    st.markdown("#### Adicionar Componente")
+
+    tipo = st.selectbox("Tipo do componente", TIPOS_COMPONENTE, filter_mode=None)
 
     aws_role_arn = None
     aws_region = None
@@ -629,123 +750,58 @@ elif selecionado == "Análises":
 
     if tipo == "Conta Cloud (AWS)":
         st.caption(
-            "Para escanear uma conta AWS, é necessário criar uma IAM Role dedicada via CloudFormation "
-            "(template disponível em `CloudAws/templates/aspm-cspm-role.yaml`). A role concede apenas "
-            "acesso de leitura (policy `SecurityAudit`) e nenhuma credencial de longa duração é armazenada — "
-            "a plataforma usa AssumeRole para obter credenciais temporárias a cada varredura."
+            "Requer uma IAM Role de leitura na sua conta AWS. Acesso temporário via AssumeRole — "
+            "nenhuma credencial fica armazenada."
         )
         aws_role_arn = st.text_input("ARN da Role (ex: arn:aws:iam::123456789012:role/ASPM-CSPM-ScannerRole)")
-        aws_region = st.text_input("Região", value="us-east-1")
+        aws_region = st.text_input("Região", value="us-east-2")
     else:
-        url = st.text_input("URL / Caminho do ativo")
+        url = st.text_input("URL / Caminho do componente")
 
     ambiente = st.selectbox("Ambiente", ["Produção", "Homologação", "Desenvolvimento"], filter_mode=None)
 
     if st.button("🔍 Iniciar Análise"):
-        if tipo == "Conta Cloud (AWS)":
-            if not aws_role_arn or not aws_role_arn.strip():
-                st.error("❌ Informe o ARN da Role.")
-            else:
-                registrar_log(usuario_id, nome_usuario,
-                    acao="Scan Iniciado",
-                    detalhe=f"Role ARN: {aws_role_arn}",
-                    nivel="INFORMATIVO",
-                    aplicacao=nome or aws_role_arn,
-                    ambiente=ambiente,
-                    origem="Scanner - CSPM AWS")
-                with st.spinner("Executando varredura de postura AWS (CSPM)..."):
-                    try:
-                        achados = run_cspm_scan(aws_role_arn.strip(), aws_region.strip() or "us-east-1")
-                        texto_cspm = formatar_achados_cspm(achados)
-
-                        crit, score, analise = analisar_vulnerabilidades(
-                            tipo="Conta Cloud (AWS)",
-                            url=aws_role_arn.strip(),
-                            ambiente=ambiente,
-                            resultado_sast="",
-                            resultado_dast="",
-                            resultado_sca="",
-                            resultado_cspm=texto_cspm,
-                        )
-
-                        if crit == "Erro":
-                            st.error("❌ Erro na análise da IA. O ativo não foi salvo.")
-                        else:
-                            salvar_ativo_cloud(
-                                usuario_id, nome, ambiente, crit, score, analise,
-                                aws_role_arn.strip(), aws_region.strip() or "us-east-1"
-                            )
-                            registrar_log(usuario_id, nome_usuario,
-                                acao="Scan Concluído",
-                                detalhe=f"Score: {score} | Criticidade: {crit} | {len(achados)} achado(s)",
-                                nivel="CRÍTICO" if crit == "Crítica" else "ALTO" if crit == "Alta" else "MÉDIO" if crit == "Média" else "BAIXO",
-                                aplicacao=nome or aws_role_arn,
-                                ambiente=ambiente,
-                                origem="Scanner - CSPM AWS")
-                            st.success("✅ Varredura CSPM concluída!")
-                            st.metric("Risk Score", score)
-                            sast_dast_c, sca_c, cspm_c, iac_c, fp_c, rel_c = _parse_blocos(analise)
-                            st.markdown("<br><h3>📋 Resultados Detalhados</h3>", unsafe_allow_html=True)
-                            _exibir_abas(tipo, sast_dast_c, sca_c, cspm_c, iac_c)
-                            _exibir_relatorio_e_fp(rel_c, fp_c)
-                    except Exception as e:
-                        st.error(f"❌ Erro na varredura CSPM: {e}")
-
-        elif not url or not url.strip():
+        if tipo == "Conta Cloud (AWS)" and (not aws_role_arn or not aws_role_arn.strip()):
+            st.error("❌ Informe o ARN da Role.")
+        elif tipo != "Conta Cloud (AWS)" and (not url or not url.strip()):
             st.error("❌ URL ou Caminho inválido.")
         elif tipo in ["API", "Aplicação"] and not url.strip().lower().startswith(("http://", "https://")):
             st.error("❌ URL inválida. Para os tipos 'API' e 'Aplicação', informe uma URL válida iniciando com http:// ou https://")
         else:
             registrar_log(usuario_id, nome_usuario,
                 acao="Scan Iniciado",
-                detalhe=f"URL: {url}",
+                detalhe=f"Tipo: {tipo} | Alvo: {aws_role_arn or url}",
                 nivel="INFORMATIVO",
-                aplicacao=nome or url,
+                aplicacao=escolha_ativo,
                 ambiente=ambiente,
                 origem=f"Scanner - {tipo}")
             with st.spinner("Executando análise de segurança..."):
                 try:
-                    res_sast = rodar_semgrep(url) if tipo == "Repositório"         else ""
-                    res_dast = rodar_zap(url, tipo=tipo) if tipo in ["API", "Aplicação"] else ""
-                    res_sca  = rodar_trivy(url)    if tipo == "Repositório"        else ""
-
-                    res_iac_bruto = rodar_checkov(url) if tipo == "Repositório" else []
-                    res_iac = formatar_achados_iac(res_iac_bruto)
-
-                    if res_dast == "ERRO_PROXY_ZAP":
-                        st.error("❌ Erro ao conectar no OWASP ZAP.")
-                        st.stop()
-                    if res_dast == "ERRO_OPENAPI_NAO_ENCONTRADO":
-                        st.error(
-                            "❌ Não foi possível localizar a especificação OpenAPI/Swagger desta API "
-                            "nos caminhos comuns (/openapi.json, /swagger.json, /v3/api-docs, etc.). "
-                            "Sem essa especificação, a análise de API não pode ser realizada."
-                        )
-                        st.stop()
-                    if res_dast == "ERRO_IMPORT_OPENAPI":
-                        st.error("❌ Erro ao importar a especificação OpenAPI/Swagger encontrada. Verifique se ela está acessível e em formato válido.")
-                        st.stop()
-                    if isinstance(res_sast, str) and res_sast.startswith("ERRO:"):
-                        st.error(f"❌ Erro no Semgrep: {res_sast.replace('ERRO:', '').strip()}")
-                        st.stop()
-                    if isinstance(res_sca, str) and res_sca.startswith("ERRO:"):
-                        st.error(f"❌ Erro no Trivy: {res_sca.replace('ERRO:', '').strip()}")
-                        st.stop()
-
-                    crit, score, analise = analisar_vulnerabilidades(tipo, url, ambiente, res_sast, res_dast, res_sca, resultado_iac=res_iac)
+                    crit, score, analise, total_achados_cloud = _executar_scanners_e_analisar(
+                        tipo, url, ambiente, aws_role_arn, aws_region
+                    )
 
                     if crit == "Erro":
-                        st.error("❌ Erro na análise da IA. O ativo não foi salvo.")
+                        st.error("❌ Erro na análise da IA. O componente não foi salvo.")
                     else:
-                        salvar_ativo(usuario_id, nome, tipo, url, ambiente, crit, score, analise)
+                        adicionar_componente(
+                            usuario_id, ativo_id_selecionado, tipo, ambiente,
+                            url=(aws_role_arn.strip() if tipo == "Conta Cloud (AWS)" else url),
+                            criticidade=crit, score=score, analise=analise,
+                            aws_role_arn=(aws_role_arn.strip() if aws_role_arn else None),
+                            aws_region=(aws_region.strip() if aws_region else None),
+                        )
+                        detalhe_log = f"Score: {score} | Criticidade: {crit}"
+                        if total_achados_cloud is not None:
+                            detalhe_log += f" | {total_achados_cloud} achado(s)"
                         registrar_log(usuario_id, nome_usuario,
                             acao="Scan Concluído",
-                            detalhe=f"Score: {score} | Criticidade: {crit}",
+                            detalhe=detalhe_log,
                             nivel="CRÍTICO" if crit == "Crítica" else "ALTO" if crit == "Alta" else "MÉDIO" if crit == "Média" else "BAIXO",
-                            aplicacao=nome or url,
+                            aplicacao=escolha_ativo,
                             ambiente=ambiente,
                             origem=f"Scanner - {tipo}")
-                        st.success("✅ Análise concluída!")
+                        st.success("✅ Componente adicionado ao ativo!")
                         st.metric("Risk Score", score)
                         sast_dast_c, sca_c, cspm_c, iac_c, fp_c, rel_c = _parse_blocos(analise)
                         st.markdown("<br><h3>📋 Resultados Detalhados</h3>", unsafe_allow_html=True)
@@ -758,36 +814,41 @@ elif selecionado == "Ativos":
     st.markdown("<div style='font-size:32px; font-weight:700; margin-bottom:20px; color:var(--text-color);'>Inventário de Ativos</div>", unsafe_allow_html=True)
 
     @st.dialog("Confirmar exclusão")
-    def _modal_confirmar_exclusao(ativo_id, ativo_nome, ativo_ambiente):
-        st.warning(f"⚠️ Tem certeza que deseja excluir **{ativo_nome}**? Essa ação não pode ser desfeita.")
+    def _modal_confirmar_exclusao_ativo(ativo_id, ativo_nome):
+        st.warning(
+            f"⚠️ Tem certeza que deseja excluir **{ativo_nome}**? "
+            "Isso também remove TODOS os componentes vinculados a ele. Essa ação não pode ser desfeita."
+        )
         col_sim, col_nao = st.columns(2)
         with col_sim:
-            if st.button("Sim, excluir", key=f"btn_confirma_{ativo_id}", width='stretch'):
+            if st.button("Sim, excluir", key=f"btn_confirma_ativo_{ativo_id}", width='stretch'):
                 deletar_ativo(usuario_id, ativo_id)
                 registrar_log(usuario_id, nome_usuario,
                     acao="Ativo Deletado",
                     detalhe=f"Ativo removido: {ativo_nome}",
                     nivel="INFORMATIVO",
                     aplicacao=ativo_nome,
-                    ambiente=ativo_ambiente,
+                    ambiente="Todos",
                     origem="Plataforma")
                 st.rerun()
         with col_nao:
-            if st.button("Cancelar", key=f"btn_cancela_{ativo_id}", width='stretch'):
+            if st.button("Cancelar", key=f"btn_cancela_ativo_{ativo_id}", width='stretch'):
                 st.rerun()
 
     ativos = listar_ativos_db(usuario_id)
     if ativos:
         st.markdown("""
             <style>
-            div[data-testid="stButton"] button[title="Excluir ativo"] {
+            div[data-testid="stButton"] button[title="Excluir ativo"],
+            div[data-testid="stButton"] button[title="Remover componente"] {
                 background: transparent !important; background-image: none !important;
                 background-color: transparent !important; border: 2px solid #ff4b4b !important;
                 color: #ff4b4b !important; border-radius: 8px !important;
                 height: 38px !important; width: 38px !important;
                 min-width: 38px !important; padding: 0px !important; box-shadow: none !important;
             }
-            div[data-testid="stButton"] button[title="Excluir ativo"]:hover {
+            div[data-testid="stButton"] button[title="Excluir ativo"]:hover,
+            div[data-testid="stButton"] button[title="Remover componente"]:hover {
                 background: rgba(255,75,75,0.12) !important;
                 background-color: rgba(255,75,75,0.12) !important; border-color: #ff6b6b !important;
             }
@@ -795,71 +856,122 @@ elif selecionado == "Ativos":
         """, unsafe_allow_html=True)
 
         for a in ativos:
-            ativo_id      = a[0]
-            ativo_nome    = a[2]
-            ativo_ambiente = a[5]
+            ativo_id            = a[0]
+            ativo_nome          = a[2]
+            ativo_descricao     = a[3]
+            ativo_dono          = a[4]
+            total_componentes   = a[5]
+            score_medio         = a[8]
+            criticidade_negocio = a[9]
+            criticidade_agreg   = a[10]
+
             col_titulo, col_lixeira = st.columns([20, 1], vertical_alignment="center")
             with col_titulo:
-                with st.expander(f"🔎 {ativo_nome} - {a[6]}"):
-                    st.write(f"**Tipo:** {a[3]} | **Ambiente:** {a[5]} | **Score:** {a[7]}")
-                    if a[3] == "Conta Cloud (AWS)":
-                        st.write(f"**Role ARN:** {a[4]}")
-                    else:
-                        st.write(f"**URL:** {a[4]}")
+                with st.expander(f"🔎 {ativo_nome} — {criticidade_agreg} ({total_componentes} componente(s))"):
+                    if ativo_descricao:
+                        st.write(f"**Descrição:** {ativo_descricao}")
+                    if ativo_dono:
+                        st.write(f"**Dono:** {ativo_dono}")
+                    if criticidade_negocio:
+                        st.write(f"**Criticidade de negócio:** {criticidade_negocio}")
+                    st.write(f"**Score médio:** {score_medio if score_medio is not None else '—'}")
+
+                    st.markdown("<hr style='opacity:0.15;'>", unsafe_allow_html=True)
+                    st.markdown("**Componentes vinculados:**")
+
+                    componentes = listar_componentes(usuario_id, ativo_id)
+                    if not componentes:
+                        st.info("Nenhum componente cadastrado ainda para este ativo. Vá em 'Análises' para adicionar.")
+                    for c in componentes:
+                        comp_id        = c[0]
+                        comp_tipo      = c[3]
+                        comp_ambiente  = c[4]
+                        comp_url       = c[5]
+                        comp_arn       = c[6]
+                        comp_criticid  = c[8]
+                        comp_score     = c[9]
+
+                        col_info, col_del = st.columns([9, 1], vertical_alignment="center")
+                        with col_info:
+                            st.write(f"**{comp_tipo}** · {comp_ambiente} · Score: {comp_score} · {comp_criticid}")
+                            if comp_tipo == "Conta Cloud (AWS)":
+                                st.caption(f"Role ARN: {comp_arn}")
+                            else:
+                                st.caption(f"URL: {comp_url}")
+                        with col_del:
+                            if st.button("🗑️", key=f"btn_del_comp_{comp_id}", help="Remover componente"):
+                                deletar_componente(usuario_id, comp_id)
+                                registrar_log(usuario_id, nome_usuario,
+                                    acao="Componente Removido",
+                                    detalhe=f"Componente {comp_tipo} ({comp_ambiente}) removido do ativo '{ativo_nome}'",
+                                    nivel="INFORMATIVO", aplicacao=ativo_nome, ambiente=comp_ambiente,
+                                    origem="Plataforma")
+                                st.rerun()
+                        st.markdown("<hr style='opacity:0.06; margin:6px 0;'>", unsafe_allow_html=True)
             with col_lixeira:
                 if st.button("🗑️", key=f"btn_excluir_{ativo_id}", help="Excluir ativo"):
-                    _modal_confirmar_exclusao(ativo_id, ativo_nome, ativo_ambiente)
+                    _modal_confirmar_exclusao_ativo(ativo_id, ativo_nome)
     else:
         st.info("Nenhum ativo cadastrado.")
 
 elif selecionado == "Vulnerabilidades":
     st.markdown("<div style='font-size:32px; font-weight:700; margin-bottom:20px; color:var(--text-color);'>Gestão de Vulnerabilidades</div>", unsafe_allow_html=True)
-    ativos = listar_ativos_db(usuario_id)
-    if ativos:
-        opcoes_ativos = {f"{a[2]} - {a[5]}": a for a in ativos}
-        ativo_selecionado = st.selectbox(
-            "Selecione um ativo:", options=list(opcoes_ativos.keys()), filter_mode=None
+    componentes = listar_componentes_usuario(usuario_id)
+    if componentes:
+        opcoes_componentes = {
+            f"{c[13]} · {c[3]} · {c[4]}": c for c in componentes
+        }
+        componente_selecionado = st.selectbox(
+            "Selecione um componente:", options=list(opcoes_componentes.keys()), filter_mode=None
         )
-        if ativo_selecionado:
-            dados_ativo = opcoes_ativos[ativo_selecionado]
+        if componente_selecionado:
+            dados = opcoes_componentes[componente_selecionado]
             try:
-                sast_dast_c, sca_c, cspm_c, iac_c, _, _ = _parse_blocos(dados_ativo[8])
-                _exibir_abas(dados_ativo[3], sast_dast_c, sca_c, cspm_c, iac_c)
+                sast_dast_c, sca_c, cspm_c, iac_c, _, _ = _parse_blocos(dados[10])
+                _exibir_abas(dados[3], sast_dast_c, sca_c, cspm_c, iac_c)
             except IndexError:
                 st.warning("⚠️ O texto da análise está corrompido ou em formato antigo.")
     else:
-        st.info("Nenhum ativo cadastrado. Faça uma análise primeiro.")
+        st.info("Nenhum componente cadastrado. Faça uma análise primeiro.")
 
 elif selecionado == "Relatórios":
     st.markdown("<div style='font-size:32px; font-weight:700; margin-bottom:20px;'>Relatórios de Segurança Executivos</div>", unsafe_allow_html=True)
-    ativos = listar_ativos_db(usuario_id)
-    if ativos:
-        opcoes_ativos = {f"{a[2]} - {a[5]}": a for a in ativos}
-        ativo_sel = st.selectbox("Selecione o ativo:", options=list(opcoes_ativos.keys()), filter_mode=None)
-        if ativo_sel:
-            dados_ativo = opcoes_ativos[ativo_sel]
-            _, _, _, _, _, rel_c = _parse_blocos(dados_ativo[8])
+
+    componentes = listar_componentes_usuario(usuario_id)
+    if componentes:
+        opcoes_componentes = {
+            f"{c[13]} · {c[3]} · {c[4]}": c for c in componentes
+        }
+        componente_sel = st.selectbox("Selecione o componente:", options=list(opcoes_componentes.keys()), filter_mode=None)
+        if componente_sel:
+            dados = opcoes_componentes[componente_sel]
+            _, _, _, _, _, rel_c = _parse_blocos(dados[10])
             if rel_c:
                 st.markdown(rel_c)
                 from gerar_pdf import gerar_pdf_relatorio
                 ativo_dict = {
-                "id": dados_ativo[0], "usuario_id": dados_ativo[1],
-                "nome": dados_ativo[2], "tipo": dados_ativo[3],
-                "url":  dados_ativo[4], "ambiente": dados_ativo[5],
-                "criticidade": dados_ativo[6], "score": dados_ativo[7],
-                "ultima_analise": dados_ativo[9]}
+                    "id": dados[0],
+                    "usuario_id": dados[2],
+                    "nome": f"{dados[13]} - {dados[3]}",
+                    "tipo": dados[3],
+                    "url": dados[5],
+                    "ambiente": dados[4],
+                    "criticidade": dados[8],
+                    "score": dados[9],
+                    "ultima_analise": dados[11],
+                }
 
-                pdf_bytes = gerar_pdf_relatorio(ativo_dict, dados_ativo[8], nome_usuario)
+                pdf_bytes = gerar_pdf_relatorio(ativo_dict, dados[10], nome_usuario)
                 st.download_button(
                     label="📄 Baixar Relatório PDF",
                     data=pdf_bytes,
-                    file_name=f"relatorio_{dados_ativo[2].replace(' ', '_')}.pdf",
+                    file_name=f"relatorio_{dados[13].replace(' ', '_')}_{dados[3].replace(' ', '_')}.pdf",
                     mime="application/pdf"
                 )
             else:
                 st.info("Gere uma nova análise para visualizar o relatório.")
     else:
-        st.info("Nenhum ativo cadastrado. Faça uma análise primeiro.")
+        st.info("Nenhum componente cadastrado. Faça uma análise primeiro.")
 
 elif selecionado == "Logs":
     st.markdown("<div style='font-size:32px; font-weight:700; margin-bottom:20px; color:var(--text-color);'>Logs de Auditoria</div>", unsafe_allow_html=True)
@@ -1018,30 +1130,32 @@ elif selecionado == "Painel Admin":
                 f"<p style='opacity:0.6; font-size:13px;'>{len(ativos_todos)} ativo(s) de todos os usuários</p>",
                 unsafe_allow_html=True)
             st.markdown("""
-                <div style="display:grid; grid-template-columns:2.5fr 1.2fr 1fr 0.7fr;
+                <div style="display:grid; grid-template-columns:2.5fr 1.2fr 1fr 0.7fr 0.7fr;
                     padding:10px 16px; background:rgba(255,255,255,0.05); border-radius:8px;
                     font-size:12px; font-weight:700; color:#c084fc; margin-bottom:4px; margin-top:12px;">
                     <span>Ativo</span>
                     <span>Dono</span>
+                    <span>Componentes</span>
                     <span>Criticidade</span>
                     <span style="text-align:right;">Score</span>
                 </div>
             """, unsafe_allow_html=True)
             cores_crit = {'Crítica':'#ff4b4b','Alta':'#ff8c00','Alto':'#ff8c00','Média':'#ffd700','Baixa':'#00c853'}
             for a in ativos_todos:
-                cor = cores_crit.get(a[6], '#ffffff')
+                cor = cores_crit.get(a[10], '#ffffff')
+                score_exibido = a[6] if a[6] is not None else a[8]
                 st.markdown(f"""
-                    <div style="display:grid; grid-template-columns:2.5fr 1.2fr 1fr 0.7fr;
+                    <div style="display:grid; grid-template-columns:2.5fr 1.2fr 1fr 0.7fr 0.7fr;
                         align-items:center; padding:12px 16px; background:rgba(255,255,255,0.02);
                         border:1px solid rgba(255,255,255,0.06); border-radius:8px;
                         font-size:14px; margin-bottom:4px;">
-                        <span><span style="font-weight:600;">{a[2]}</span>
-                            <span style="opacity:0.6; font-size:12px;"> ({a[3]} · {a[5]})</span></span>
-                        <span style="opacity:0.7; font-size:13px;"><b>{a[10]}</b></span>
+                        <span style="font-weight:600;">{a[2]}</span>
+                        <span style="opacity:0.7; font-size:13px;"><b>{a[12]}</b></span>
+                        <span style="opacity:0.8;">{a[5]}</span>
                         <span><span style="background:{cor}22; color:{cor}; padding:4px 10px;
                             border-radius:20px; font-size:12px; font-weight:700;
-                            border:1px solid {cor}55;">{a[6]}</span></span>
-                        <span style="color:{cor}; font-weight:800; text-align:right;">{a[7]}</span>
+                            border:1px solid {cor}55;">{a[10]}</span></span>
+                        <span style="color:{cor}; font-weight:800; text-align:right;">{score_exibido if score_exibido is not None else '—'}</span>
                     </div>
                 """, unsafe_allow_html=True)
 

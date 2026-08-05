@@ -192,17 +192,142 @@ def formatar_achados_cspm(achados: list) -> str:
 
 
 def formatar_achados_iac(achados: list) -> str:
+    """
+    Formata os achados brutos do Checkov (Scanners/checkov_scanner.py) para o prompt.
+
+    Diferente do CSPM, esses achados NÃO vêm com uma criticidade pré-atribuída
+    (o Checkov OSS não fornece isso sem uma conta paga na plataforma Bridgecrew/
+    Prisma Cloud). Por isso, aqui só repassamos o contexto técnico bruto de cada
+    achado (check, recurso, arquivo/linha e guideline) para que a IA classifique
+    a severidade junto com os demais scanners, sem exigir manutenção manual de
+    um mapa de severidades.
+    """
     if not achados:
         return "[]"
 
     linhas = []
     for a in achados:
-        crit = a.get("criticidade", "INFO")
         recurso = a.get("recurso", "desconhecido")
         descricao = a.get("descricao", "")
-        linhas.append(f"[{crit}] {recurso}: {descricao}")
+        contexto = a.get("contexto_ia") or {}
+
+        detalhes = []
+        arquivo = contexto.get("file_path")
+        linhas_range = contexto.get("file_line_range")
+        if arquivo:
+            if linhas_range:
+                detalhes.append(f"arquivo: {arquivo} (linhas {linhas_range[0]}-{linhas_range[1]})")
+            else:
+                detalhes.append(f"arquivo: {arquivo}")
+
+        categoria = contexto.get("bc_category")
+        if categoria:
+            detalhes.append(f"categoria: {categoria}")
+
+        guideline = contexto.get("guideline")
+        if guideline:
+            detalhes.append(f"referencia: {guideline}")
+
+        sufixo = f" ({'; '.join(detalhes)})" if detalhes else ""
+        linhas.append(f"{recurso}: {descricao}{sufixo}")
 
     return "\n".join(linhas)
+
+
+# ==================================================
+# PATCH: verificação anti-omissão para achados de IaC
+# ==================================================
+# Motivo: confirmado por log que o Checkov (checkov.py) sempre envia o
+# conjunto completo de achados para o prompt (comportamento determinístico).
+# A perda de achados observada em alguns relatórios acontece DEPOIS disso,
+# na resposta do Gemini — variância inerente do LLM entre chamadas, não um
+# bug do pipeline Python. Esta verificação não impede a variância (não dá
+# pra eliminar 100%), mas detecta quando um RECURSO inteiro (não apenas um
+# check_id individual, já que a IA tem liberdade pra consolidar) sai do
+# input e não aparece representado em nenhum item da resposta — e força
+# uma nova tentativa nesse caso.
+
+_SINONIMOS_TIPO_RECURSO = {
+    "db instance": ["rds", "banco de dados", "database"],
+    "s3 bucket": ["s3", "bucket"],
+    "s3 bucket public access block": ["s3", "bucket", "acesso público", "acesso publico"],
+    "security group": ["security group", "sg", "grupo de segurança", "grupo de seguranca"],
+    "iam policy": ["iam", "política", "politica", "policy"],
+    "iam role": ["iam", "role", "função", "funcao"],
+    "instance": ["ec2", "instância", "instancia"],
+}
+
+
+def _extrair_recursos_do_iac_final(iac_final: str) -> set:
+    """
+    Extrai o conjunto de recursos (ex: 'aws_security_group.test_sg') presentes
+    no texto bruto enviado ao prompt. Formato esperado de cada linha:
+    'IaC:<recurso>: <descricao> (CKV_AWS_XX) (arquivo: ...)'
+    """
+    if not iac_final or iac_final.startswith("IGNORADO") or iac_final == "[]":
+        return set()
+
+    recursos = set()
+    for linha in iac_final.splitlines():
+        m = re.match(r"IaC:([^\s:]+):", linha.strip())
+        if m:
+            recursos.add(m.group(1))
+    return recursos
+
+
+def _recursos_ausentes_na_resposta(recursos_enviados: set, dados_json: dict) -> set:
+    """
+    Retorna o subconjunto de `recursos_enviados` que não aparece mencionado
+    em NENHUM item das listas de criticidade de IaC retornadas pela IA.
+
+    A checagem é por substring (nome do recurso, ex: 'test_admin_policy')
+    dentro do texto de cada item, já que a IA reescreve a descrição em
+    português e não necessariamente repete o nome completo do resource
+    Terraform — mas normalmente mantém alguma referência identificável
+    (nome do bucket/tabela/policy) ou pelo menos o tipo do recurso.
+    """
+    todos_itens_iac = (
+        dados_json.get("criticos_iac", [])
+        + dados_json.get("altos_iac", [])
+        + dados_json.get("medios_iac", [])
+        + dados_json.get("baixos_iac", [])
+    )
+    texto_resposta_iac = " ".join(todos_itens_iac).lower()
+
+    ausentes = set()
+    for recurso in recursos_enviados:
+        partes = recurso.split(".")
+        tipo_recurso = partes[0].replace("aws_", "").replace("_", " ") if partes else recurso
+        nome_logico = partes[1] if len(partes) > 1 else ""
+
+        sinal_tipo = tipo_recurso.lower() in texto_resposta_iac
+        sinal_nome = bool(nome_logico) and nome_logico.lower() in texto_resposta_iac
+
+        sinal_sinonimo = False
+        for termo in _SINONIMOS_TIPO_RECURSO.get(tipo_recurso.lower(), []):
+            if termo in texto_resposta_iac:
+                sinal_sinonimo = True
+                break
+
+        if not sinal_tipo and not sinal_nome and not sinal_sinonimo:
+            ausentes.add(recurso)
+
+    return ausentes
+
+
+def verificar_omissao_iac(iac_final: str, dados_json: dict) -> tuple:
+    """
+    Retorna (houve_omissao: bool, recursos_ausentes: set).
+    """
+    recursos_enviados = _extrair_recursos_do_iac_final(iac_final)
+    if not recursos_enviados:
+        return False, set()
+
+    ausentes = _recursos_ausentes_na_resposta(recursos_enviados, dados_json)
+    return (len(ausentes) > 0), ausentes
+# ==================================================
+# FIM DO PATCH
+# ==================================================
 
 
 def analisar_vulnerabilidades(tipo, url, ambiente, resultado_sast, resultado_dast, resultado_sca="", resultado_cspm="", resultado_iac=""):
@@ -309,13 +434,24 @@ Antes de classificar qualquer finding, siga estas etapas:
    (ver abaixo) justifique elevar a severidade. Achados com criticidade "INFO" (ex: erros de
    permissão ao consultar algum serviço) não devem aparecer em nenhuma lista de criticidade.
 
-6. ACHADOS DE IaC (Infraestrutura como Código - Checkov): Os achados de IaC vêm já
-   pré-classificados por criticidade por checks determinísticos do Checkov, rodados
-   estaticamente contra arquivos CloudFormation/Terraform do próprio repositório (não
-   contra infraestrutura já provisionada — isso é o papel do CSPM). Preserve a criticidade
-   original ao classificar nos campos criticos_iac/altos_iac/medios_iac/baixos_iac, a menos
-   que o Fator Ambiente justifique ajuste. Achados "INFO" (ex: erro ao rodar o parser em
-   algum arquivo) não devem aparecer em nenhuma lista de criticidade.
+6. ACHADOS DE IaC (Infraestrutura como Código - Checkov): Os achados de IaC vêm SEM
+   criticidade pré-atribuída — apenas com o contexto técnico bruto do check (check_id,
+   nome do check, recurso afetado, arquivo/linha e, quando disponível, uma categoria
+   (ex: IAM, Networking, Encryption, Logging) e um link de referência/guideline). Você deve
+   classificar a severidade de cada achado do zero, com o mesmo critério técnico usado para
+   SAST/DAST, usando a MATRIZ DE CRITICIDADE abaixo e o bom senso de AppSec (ex: recurso
+   publicamente exposto ou sem criptografia = severidade mais alta; ausência de tag/descrição
+   ou nomenclatura = severidade mais baixa). Achados que representem apenas erro de execução
+   do parser do Checkov (não um problema real de configuração) não devem aparecer em nenhuma
+   lista de criticidade.
+
+   REGRA CRÍTICA DE COMPLETUDE: TODOS os recursos distintos presentes nos dados de IaC abaixo
+   (ex: aws_iam_policy, aws_s3_bucket, aws_security_group, aws_db_instance, cada um
+   identificado pelo nome após o ponto) DEVEM estar representados por pelo menos um item em
+   alguma das listas de criticidade de IaC. É proibido omitir um recurso inteiro do relatório.
+   Você PODE consolidar múltiplos checks do MESMO recurso com a MESMA causa raiz em um único
+   item (ver REGRA DE CONSOLIDAÇÃO SEMÂNTICA), mas cada recurso distinto precisa aparecer em
+   pelo menos um item final, mesmo que resumido.
 
 ==================================================
 AVISO DE SEGURANÇA — DADOS NÃO CONFIÁVEIS
@@ -432,7 +568,11 @@ REGRA DE CONSOLIDAÇÃO SEMÂNTICA (aplica-se a QUALQUER tipo de vulnerabilidade
        (ex: uma vez em criticos_sast e outra em altos_sast).
   Esta regra tem prioridade sobre a listagem item a item — é preferível um relatório com
   menos itens, porém semanticamente corretos, do que um relatório com itens duplicados
-  sob nomes distintos.
+  sob nomes distintos. Esta regra também se aplica aos achados de IaC (Checkov): se
+  múltiplos checks apontarem para o mesmo recurso e a mesma causa raiz (ex: "sem
+  criptografia" e "sem KMS" no mesmo bucket), consolide em um único item — mas NUNCA
+  consolide checks de recursos DIFERENTES entre si, e NUNCA use a consolidação como
+  motivo para omitir um recurso inteiro (ver REGRA CRÍTICA DE COMPLETUDE acima).
 
 ==================================================
 REGRA DE CÁLCULO DE CRITICIDADE E SCORE (CONDIÇÕES)
@@ -515,9 +655,12 @@ REGRAS DE NEGÓCIO
     'Recurso: descrição breve do problema de configuração em português'.
     OBRIGATÓRIO: escreva SEMPRE em português, mesmo que o achado bruto venha em outro idioma.
 
-14. Para o IaC: classifique cada achado nos campos criticos_iac, altos_iac, medios_iac ou
-    baixos_iac de acordo com a criticidade já atribuída pelo Checkov (preservando-a, salvo
-    ajuste pelo Fator Ambiente). Formato (máximo 20 palavras por item):
+14. Para o IaC: os achados chegam SEM severidade pré-definida. Classifique cada achado do
+    zero nos campos criticos_iac, altos_iac, medios_iac ou baixos_iac, usando a MATRIZ DE
+    CRITICIDADE acima e o contexto técnico fornecido (categoria do check, recurso afetado,
+    guideline), aplicando também o Fator Ambiente quando pertinente. É OBRIGATÓRIO que
+    TODO recurso distinto presente nos dados de IaC apareça em pelo menos um item — ver
+    REGRA CRÍTICA DE COMPLETUDE. Formato (máximo 20 palavras por item):
     'Recurso: descrição breve do problema de configuração em português'.
     OBRIGATÓRIO: escreva SEMPRE em português, mesmo que o achado bruto venha em outro idioma.
 
@@ -548,11 +691,31 @@ Retorne SOMENTE JSON seguindo estritamente o schema fornecido.
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
                     response_schema=AnaliseVulnerabilidadeSchema,
-                    temperature=0.1
+                    temperature=0.0
                 )
             )
 
             dados_json = json.loads(resposta.text)
+
+            # --- PATCH: verificação anti-omissão de IaC ---
+            houve_omissao, recursos_ausentes = verificar_omissao_iac(iac_final, dados_json)
+            if houve_omissao:
+                print(f"[AVISO] Omissao de achados de IaC detectada para: {recursos_ausentes}. Tentando novamente...")
+                resposta = cliente.models.generate_content(
+                    model="gemini-2.5-flash",
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        response_schema=AnaliseVulnerabilidadeSchema,
+                        temperature=0.0
+                    )
+                )
+                dados_json = json.loads(resposta.text)
+
+                houve_omissao_retry, recursos_ainda_ausentes = verificar_omissao_iac(iac_final, dados_json)
+                if houve_omissao_retry:
+                    print(f"[AVISO] Omissao de IaC persistiu apos retry para: {recursos_ainda_ausentes}. Seguindo com resposta parcial.")
+            # --- FIM DO PATCH ---
 
             def _dedup(lst): return list(dict.fromkeys(lst))
 
