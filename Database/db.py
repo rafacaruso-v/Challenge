@@ -5,8 +5,6 @@ from datetime import datetime
 
 def conectar():
     conexao = sqlite3.connect("aspm.db", check_same_thread=False)
-    # Necessário para que FOREIGN KEY ... ON DELETE CASCADE funcione de fato.
-    # SQLite vem com isso desligado por padrão em cada conexão nova.
     conexao.execute("PRAGMA foreign_keys = ON")
     return conexao
 
@@ -104,41 +102,29 @@ def criar_tabela():
 
 
 def _migrar_para_modelo_ativo_componente(conexao):
-    """
-    Migra o schema antigo (1 linha de 'ativos' = 1 tipo de artefato) para o
-    novo modelo (ativo pai + N componentes). So roda a migracao se detectar
-    a tabela antiga 'ativos' com a coluna 'tipo' (schema legado). Se o banco
-    ja estiver no schema novo, ou for um banco novo do zero, nao faz nada
-    aqui - quem cria as tabelas novas e _criar_estrutura_ativos_v2.
 
-    Idempotente: pode ser chamada toda vez que a app sobe, sem duplicar dados.
-    """
     cursor = conexao.cursor()
 
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='ativos'")
     tabela_ativos_existe = cursor.fetchone() is not None
 
     if not tabela_ativos_existe:
-        return  # banco novo, nada para migrar
+        return 
 
     cursor.execute("PRAGMA table_info(ativos)")
     colunas_ativos = {row[1] for row in cursor.fetchall()}
 
     schema_e_legado = "tipo" in colunas_ativos and "url" in colunas_ativos
     if not schema_e_legado:
-        return  # ja esta no schema novo
+        return
 
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='ativos_old'")
     ja_migrado = cursor.fetchone() is not None
     if ja_migrado:
-        return  # migracao ja rodou antes (ativos_old ja existe), nao repete
+        return 
 
-    # 1. Renomeia a tabela antiga para preservar os dados originais como backup
     cursor.execute("ALTER TABLE ativos RENAME TO ativos_old")
 
-    # 2. Cria as tabelas novas (mesma definicao de _criar_estrutura_ativos_v2,
-    #    duplicada aqui de proposito para a migracao ser auto-contida e nao
-    #    depender de ordem de chamada entre funcoes internas)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS ativos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -187,8 +173,6 @@ def _migrar_para_modelo_ativo_componente(conexao):
         )
     """)
 
-    # 3. Copia cada linha antiga como um Ativo pai novo, mantendo o mesmo id
-    #    (evita ter que remapear referencias em alertas/logs, que usam nome).
     cursor.execute("""
         INSERT INTO ativos (id, usuario_id, nome, descricao, dono, criticidade_negocio, criado_em, atualizado_em)
         SELECT
@@ -203,8 +187,6 @@ def _migrar_para_modelo_ativo_componente(conexao):
         FROM ativos_old
     """)
 
-    # 4. Cada linha antiga vira exatamente 1 componente vinculado ao ativo pai
-    #    de mesmo id criado no passo anterior.
     cursor.execute("""
         INSERT INTO ativo_componentes (
             ativo_id, usuario_id, tipo, ambiente, url, aws_role_arn, aws_region,
@@ -212,14 +194,11 @@ def _migrar_para_modelo_ativo_componente(conexao):
         )
         SELECT
             id, usuario_id, tipo, ambiente, url, aws_role_arn, aws_region,
-            criticidade, score, analise, ultima_analise,
+            criticidade, score, analise,
             COALESCE(ultima_analise, datetime('now'))
         FROM ativos_old
     """)
 
-    # 5. Migra o historico por ativo (historico_ativos) para o historico por
-    #    componente, associando pelo ativo_id (na migracao inicial a relacao
-    #    e 1:1, entao o join direto e seguro).
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='historico_ativos'")
     if cursor.fetchone():
         cursor.execute("""
@@ -503,7 +482,6 @@ def limpar_codigo_mfa(usuario_id: int):
     conexao.commit()
 
 def validar_codigo_mfa(usuario_id: int, codigo_digitado: str):
-    """Retorna (sucesso: bool, mensagem: str)."""
     conexao = conectar()
     cursor = conexao.cursor()
     cursor.execute(
@@ -542,10 +520,6 @@ def validar_codigo_mfa(usuario_id: int, codigo_digitado: str):
     return True, "Código validado com sucesso."
 
 
-# =====================================================================
-# ATIVOS (entidade pai — a aplicação/negócio)
-# =====================================================================
-
 def criar_ativo(usuario_id, nome, descricao=None, dono=None, criticidade_negocio=None):
     """
     Cria o Ativo pai (sem nenhum componente ainda). Retorna o id gerado,
@@ -563,25 +537,24 @@ def criar_ativo(usuario_id, nome, descricao=None, dono=None, criticidade_negocio
     return cursor.lastrowid
 
 def atualizar_ativo(usuario_id, ativo_id, nome=None, descricao=None, dono=None, criticidade_negocio=None):
+    if nome is None and descricao is None and dono is None and criticidade_negocio is None:
+        return
+
     conexao = conectar()
     cursor = conexao.cursor()
-    campos, valores = [], []
-    for coluna, valor in [
-        ("nome", nome), ("descricao", descricao),
-        ("dono", dono), ("criticidade_negocio", criticidade_negocio),
-    ]:
-        if valor is not None:
-            campos.append(f"{coluna} = ?")
-            valores.append(valor)
-    if not campos:
-        return
-    campos.append("atualizado_em = ?")
-    valores.append(datetime.now().strftime("%d/%m/%Y %H:%M"))
-    valores.extend([ativo_id, usuario_id])
-    cursor.execute(f"""
-        UPDATE ativos SET {", ".join(campos)}
+    cursor.execute("""
+        UPDATE ativos
+        SET nome = COALESCE(?, nome),
+            descricao = COALESCE(?, descricao),
+            dono = COALESCE(?, dono),
+            criticidade_negocio = COALESCE(?, criticidade_negocio),
+            atualizado_em = ?
         WHERE id = ? AND usuario_id = ?
-    """, valores)
+    """, (
+        nome, descricao, dono, criticidade_negocio,
+        datetime.now().strftime("%d/%m/%Y %H:%M"),
+        ativo_id, usuario_id
+    ))
     conexao.commit()
 
 def listar_ativos_db(usuario_id):
@@ -623,8 +596,6 @@ def buscar_ativo(usuario_id, ativo_id):
     return cursor.fetchone()
 
 def listar_ativos_todos():
-    """Usado no Painel Admin: todos os ativos de todos os usuários, com o
-    username do dono no final da tupla."""
     conexao = conectar()
     cursor = conexao.cursor()
     cursor.execute("""
@@ -651,10 +622,6 @@ def deletar_ativo(usuario_id, ativo_id):
         cursor.execute("DELETE FROM alertas WHERE ativo_nome = ? AND usuario_id = ?", (resultado[0], usuario_id))
     conexao.commit()
 
-
-# =====================================================================
-# ATIVO_COMPONENTES (entidade filha — repositório / API / aplicação / cloud)
-# =====================================================================
 
 def adicionar_componente(
     usuario_id, ativo_id, tipo, ambiente,
@@ -699,7 +666,6 @@ def atualizar_componente(usuario_id, componente_id, criticidade, score, analise)
     conexao.commit()
 
 def listar_componentes(usuario_id, ativo_id):
-    """Todos os componentes vinculados a um Ativo específico."""
     conexao = conectar()
     cursor = conexao.cursor()
     cursor.execute("""
@@ -712,12 +678,6 @@ def listar_componentes(usuario_id, ativo_id):
     return cursor.fetchall()
 
 def listar_componentes_usuario(usuario_id):
-    """
-    Todos os componentes do usuário, de todos os ativos — útil para telas
-    como 'Vulnerabilidades' que hoje trabalham em cima de uma lista plana
-    de artefatos escaneados, independente de agrupamento por ativo pai.
-    Inclui o nome do ativo pai para exibição.
-    """
     conexao = conectar()
     cursor = conexao.cursor()
     cursor.execute("""
@@ -803,10 +763,6 @@ def listar_historico(usuario_id, minutos=60):
     return list(reversed(filtrados))
 
 
-# =====================================================================
-# HISTÓRICO POR COMPONENTE (substitui o antigo historico_ativos)
-# =====================================================================
-
 def registrar_historico_componente(usuario_id, componente_id, ativo_id, score):
     conexao = conectar()
     cursor = conexao.cursor()
@@ -827,10 +783,6 @@ def listar_historico_componente(usuario_id, componente_id, limite=50):
     """, (usuario_id, componente_id, limite))
     return cursor.fetchall()
 
-
-# =====================================================================
-# ALERTAS (sem mudanças de schema — continuam ligados por nome do ativo)
-# =====================================================================
 
 def salvar_alerta(usuario_id, ativo_nome, tipo, mensagem):
     conexao = conectar()
