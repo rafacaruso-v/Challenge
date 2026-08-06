@@ -1,3 +1,23 @@
+# CVE-2026-69244 (aiohttp < 3.14.3, HIGH)
+# ---------------------------------------------------------------------------
+# Out-of-bounds heap read no parser C de resposta HTTP do aiohttp, disparado
+# apenas quando o cliente recebe uma resposta chunked malformada de um
+# servidor malicioso/comprometido. Impacto limitado a DoS (crash do processo
+# cliente) - sem RCE, sem leak de dados, sem escalonamento de privilegio.
+#
+# Motivo da supressao: o aiohttp aqui e dependencia transitiva do Checkov
+# (exigido como aiohttp<3.14.0,>=3.8.0 pelo checkov==3.3.9, a versao mais
+# recente disponivel no momento). Nao ha combinacao de versoes publicada que
+# resolva simultaneamente o CVE e a constraint do Checkov.
+#
+# Avaliacao de risco: projeto academico, aplicacao executada localmente, sem
+# exposicao publica de rede e sem usuarios externos. O unico vetor de
+# exploracao exigiria um servidor malicioso respondendo a requisicoes feitas
+# pelo Checkov (ex: registries de modulos IaC) - cenario nao aplicavel aqui.
+# Risco aceito.
+#
+CVE-2026-69244
+
 # CVE-2026-0994: DoS via bypass de limite de recursão em
 # google.protobuf.json_format.ParseDict() ao processar mensagens
 # google.protobuf.Any aninhadas.
@@ -8,8 +28,6 @@
 # apenas indisponibilidade (DoS), sem risco de vazamento de dados ou
 # execução de código. Projeto acadêmico, sem exposição em produção real.
 #
-# Revisar esta exceção ao atualizar google-genai/protobuf, ou antes de
-# qualquer deploy em ambiente real.
 CVE-2026-0994
 
 # CVE-2026-52869 / CVE-2026-52870 / CVE-2026-59950: vulnerabilidades nos
@@ -24,8 +42,6 @@ CVE-2026-0994
 # servidor MCP estiver de fato exposto e em execução, o que não é o
 # caso aqui. Projeto acadêmico, sem exposição em produção real.
 #
-# Revisar esta exceção caso o projeto passe a expor um servidor MCP,
-# ou antes de qualquer deploy em ambiente real. Fix disponível: mcp>=1.28.1.
 CVE-2026-52869
 CVE-2026-52870
 CVE-2026-59950
