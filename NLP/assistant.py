@@ -25,9 +25,11 @@ informação que não esteja neles.
 """
 
 
-def _obter_nome_usuario(usuario_id) -> str:
+def obter_nome_usuario(usuario_id) -> str:
     """Busca o nome de exibição do usuário logado para dar contexto ao prompt.
-    Cai para algo genérico se não encontrar (não deve travar a conversa)."""
+    Cai para algo genérico se não encontrar (não deve travar a conversa).
+    Pública de propósito: também é reutilizada pela tela do chatbot para
+    montar a mensagem de boas-vindas sem precisar duplicar essa consulta."""
     try:
         usuario = buscar_usuario_por_id(usuario_id)
     except Exception:
@@ -39,6 +41,10 @@ def _obter_nome_usuario(usuario_id) -> str:
     # buscar_usuario_por_id retorna: id, username, email, senha_hash, nome, role
     nome = usuario[4] or usuario[1]
     return nome or "Usuário"
+
+
+# Mantido por compatibilidade, caso algo mais no projeto já importe o nome antigo.
+_obter_nome_usuario = obter_nome_usuario
 
 
 def _e_pergunta_de_identidade(pergunta_lower: str) -> bool:
@@ -56,7 +62,7 @@ def _e_pergunta_de_identidade(pergunta_lower: str) -> bool:
 def preparar_prompt(usuario_id, pergunta):
 
     pergunta_lower = pergunta.lower()
-    nome_usuario = _obter_nome_usuario(usuario_id)
+    nome_usuario = obter_nome_usuario(usuario_id)
 
     if _e_pergunta_de_identidade(pergunta_lower):
         return f"""

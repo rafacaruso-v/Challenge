@@ -704,11 +704,6 @@ def buscar_componente(usuario_id, componente_id):
     """, (usuario_id, componente_id))
     return cursor.fetchone()
 
-def deletar_componente(usuario_id, componente_id):
-    conexao = conectar()
-    cursor = conexao.cursor()
-    cursor.execute("DELETE FROM ativo_componentes WHERE id = ? AND usuario_id = ?", (componente_id, usuario_id))
-    conexao.commit()
 
 def buscar_role_arn_aws(usuario_id, componente_id):
     """Agora busca pelo id do COMPONENTE (não mais do ativo pai), já que o

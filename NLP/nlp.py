@@ -5,7 +5,7 @@ from google import genai
 from google.genai import types
 from PIL import Image
 
-from NLP.assistant import preparar_prompt
+from NLP.assistant import preparar_prompt, obter_nome_usuario
 
 
 load_dotenv()
@@ -28,6 +28,22 @@ def inicializar_cliente():
     return genai.Client(api_key=CHAVES_API[0])
 
 
+def _mensagem_de_boas_vindas(usuario_id) -> str:
+    """Mensagem inicial estática (sem custo de chamada à API) exibida quando
+    o usuário abre o chat pela primeira vez na sessão."""
+    nome_usuario = obter_nome_usuario(usuario_id)
+    return f"""Olá, {nome_usuario}! 👋 Eu sou o assistente de IA da **ASPM Platform**.
+
+Posso te ajudar a entender a postura de segurança dos seus ativos, direto por aqui, em linguagem natural. Alguns exemplos do que você pode me perguntar:
+
+- 🛡️ **Ativos e vulnerabilidades** — "Quais ativos estão com criticidade Alta?", "Qual o score do meu repositório X?"
+- 🔔 **Alertas e anomalias** — "Tem algum ativo offline?", "Quais alertas têm maior prioridade?"
+- 🌐 **Threat Intelligence** — "Quais CVEs críticas saíram essa semana?"
+- 📊 **Relatórios executivos** — "Me dá um resumo geral da minha postura de segurança"
+
+Você também pode anexar imagens, PDFs ou arquivos de texto usando o botão de anexo. Como posso te ajudar hoje?"""
+
+
 def tela_chatbot(usuario_id):
 
     st.markdown("<h1>CHATBOT</h1>", unsafe_allow_html=True)
@@ -42,7 +58,12 @@ def tela_chatbot(usuario_id):
         )
 
     if "messages" not in st.session_state:
-        st.session_state.messages = []
+        st.session_state.messages = [
+            {
+                "role": "assistant",
+                "content": _mensagem_de_boas_vindas(usuario_id),
+            }
+        ]
 
     for mensagem in st.session_state.messages:
         with st.chat_message(mensagem["role"]):

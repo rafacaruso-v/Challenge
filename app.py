@@ -25,7 +25,6 @@ from Database.db import (
     listar_componentes_usuario,
     buscar_role_arn_aws,
     deletar_ativo,
-    deletar_componente,
     listar_alertas_ativos,
     resolver_alerta,
     listar_historico,
@@ -418,9 +417,8 @@ def _exibir_abas(tipo, sast_dast_conteudo, sca_conteudo, cspm_conteudo="", iac_c
         abas_labels.append("📦 Relatório SCA")
         conteudos.append(("cards", sca_conteudo))
 
-        if iac_conteudo and "[NIVEL:" in iac_conteudo:
-            abas_labels.append("🏗️ Relatório IaC")
-            conteudos.append(("cards", iac_conteudo))
+        abas_labels.append("🏗️ Relatório IaC")
+        conteudos.append(("cards", iac_conteudo))
 
     elif tipo in ("API", "Aplicação"):
         bloco_dast = sast_dast_conteudo.split("---DIVISOR---")[1].strip() if "---DIVISOR---" in sast_dast_conteudo else sast_dast_conteudo
@@ -842,16 +840,14 @@ elif selecionado == "Ativos":
     if ativos:
         st.markdown("""
             <style>
-            div[data-testid="stButton"] button[title="Excluir ativo"],
-            div[data-testid="stButton"] button[title="Remover componente"] {
+            div[data-testid="stButton"] button[title="Excluir ativo"] {
                 background: transparent !important; background-image: none !important;
                 background-color: transparent !important; border: 2px solid #ff4b4b !important;
                 color: #ff4b4b !important; border-radius: 8px !important;
                 height: 38px !important; width: 38px !important;
                 min-width: 38px !important; padding: 0px !important; box-shadow: none !important;
             }
-            div[data-testid="stButton"] button[title="Excluir ativo"]:hover,
-            div[data-testid="stButton"] button[title="Remover componente"]:hover {
+            div[data-testid="stButton"] button[title="Excluir ativo"]:hover {
                 background: rgba(255,75,75,0.12) !important;
                 background-color: rgba(255,75,75,0.12) !important; border-color: #ff6b6b !important;
             }
@@ -879,7 +875,7 @@ elif selecionado == "Ativos":
                         st.write(f"**Criticidade de negócio:** {criticidade_negocio}")
                     st.write(f"**Score médio:** {score_medio if score_medio is not None else '—'}")
 
-                    st.markdown("<hr style='opacity:0.15;'>", unsafe_allow_html=True)
+                    st.markdown("<hr style='opacity:0.15; margin: 5px 0;'>", unsafe_allow_html=True)
                     st.markdown("**Componentes vinculados:**")
 
                     componentes = listar_componentes(usuario_id, ativo_id)
@@ -894,22 +890,11 @@ elif selecionado == "Ativos":
                         comp_criticid  = c[8]
                         comp_score     = c[9]
 
-                        col_info, col_del = st.columns([9, 1], vertical_alignment="center")
-                        with col_info:
-                            st.write(f"**{comp_tipo}** · {comp_ambiente} · Score: {comp_score} · {comp_criticid}")
-                            if comp_tipo == "Conta Cloud (AWS)":
-                                st.caption(f"Role ARN: {comp_arn}")
-                            else:
-                                st.caption(f"URL: {comp_url}")
-                        with col_del:
-                            if st.button("🗑️", key=f"btn_del_comp_{comp_id}", help="Remover componente"):
-                                deletar_componente(usuario_id, comp_id)
-                                registrar_log(usuario_id, nome_usuario,
-                                    acao="Componente Removido",
-                                    detalhe=f"Componente {comp_tipo} ({comp_ambiente}) removido do ativo '{ativo_nome}'",
-                                    nivel="INFORMATIVO", aplicacao=ativo_nome, ambiente=comp_ambiente,
-                                    origem="Plataforma")
-                                st.rerun()
+                        st.write(f"**{comp_tipo}** · {comp_ambiente} · Score: {comp_score} · {comp_criticid}")
+                        if comp_tipo == "Conta Cloud (AWS)":
+                            st.caption(f"Role ARN: {comp_arn}")
+                        else:
+                            st.caption(f"URL: {comp_url}")
                         st.markdown("<hr style='opacity:0.06; margin:6px 0;'>", unsafe_allow_html=True)
             with col_lixeira:
                 if st.button("🗑️", key=f"btn_excluir_{ativo_id}", help="Excluir ativo"):
