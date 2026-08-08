@@ -716,11 +716,6 @@ def buscar_role_arn_aws(usuario_id, componente_id):
     """, (componente_id, usuario_id))
     return cursor.fetchone()
 
-
-# =====================================================================
-# HISTÓRICO GERAL (score médio do usuário — usado no gráfico do Dashboard)
-# =====================================================================
-
 def registrar_historico(usuario_id):
     conexao = conectar()
     cursor = conexao.cursor()

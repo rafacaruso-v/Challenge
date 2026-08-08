@@ -83,7 +83,7 @@ CORES_NIVEL = {
     "INFORMATIVO": ("#a855f7", "#a855f722"),
 }
 
-TIPOS_COMPONENTE = ["API", "Aplicação", "Repositório", "Conta Cloud (AWS)"]
+TIPOS_COMPONENTE = ["API", "Aplicação", "Repositório", "Cloud"]
 
 
 def get_base64_image(image_path):
@@ -425,7 +425,7 @@ def _exibir_abas(tipo, sast_dast_conteudo, sca_conteudo, cspm_conteudo="", iac_c
         abas_labels.append("🌐 Relatório DAST")
         conteudos.append(("cards", bloco_dast))
 
-    elif tipo == "Conta Cloud (AWS)":
+    elif tipo == "Cloud":
         abas_labels.append("☁️ Relatório CSPM")
         conteudos.append(("cards", cspm_conteudo))
 
@@ -504,11 +504,11 @@ def exibir_alertas_banner():
 
 def _executar_scanners_e_analisar(tipo, url, ambiente, aws_role_arn=None, aws_region=None):
 
-    if tipo == "Conta Cloud (AWS)":
-        achados = run_cspm_scan(aws_role_arn.strip(), aws_region.strip() or "us-east-1")
+    if tipo == "Cloud":
+        achados = run_cspm_scan(aws_role_arn.strip(), aws_region.strip() or "us-east-2")
         texto_cspm = formatar_achados_cspm(achados)
         crit, score, analise = analisar_vulnerabilidades(
-            tipo="Conta Cloud (AWS)",
+            tipo="Cloud",
             url=aws_role_arn.strip(),
             ambiente=ambiente,
             resultado_sast="",
@@ -749,9 +749,9 @@ elif selecionado == "Análises":
     aws_region = None
     url = None
 
-    if tipo == "Conta Cloud (AWS)":
+    if tipo == "Cloud":
         st.caption(
-            "Requer uma IAM Role de leitura na sua conta AWS. Acesso temporário via AssumeRole — "
+            "Requer uma IAM Role de leitura na sua conta Cloud. Acesso temporário via AssumeRole — "
             "nenhuma credencial fica armazenada."
         )
         aws_role_arn = st.text_input("ARN da Role (ex: arn:aws:iam::123456789012:role/ASPM-CSPM-ScannerRole)")
@@ -762,9 +762,9 @@ elif selecionado == "Análises":
     ambiente = st.selectbox("Ambiente", ["Produção", "Homologação", "Desenvolvimento"], filter_mode=None)
 
     if st.button("🔍 Iniciar Análise"):
-        if tipo == "Conta Cloud (AWS)" and (not aws_role_arn or not aws_role_arn.strip()):
+        if tipo == "Cloud" and (not aws_role_arn or not aws_role_arn.strip()):
             st.error("❌ Informe o ARN da Role.")
-        elif tipo != "Conta Cloud (AWS)" and (not url or not url.strip()):
+        elif tipo != "Cloud" and (not url or not url.strip()):
             st.error("❌ URL ou Caminho inválido.")
         elif tipo in ["API", "Aplicação"] and not url.strip().lower().startswith(("http://", "https://")):
             st.error("❌ URL inválida. Para os tipos 'API' e 'Aplicação', informe uma URL válida iniciando com http:// ou https://")
@@ -787,7 +787,7 @@ elif selecionado == "Análises":
                     else:
                         adicionar_componente(
                             usuario_id, ativo_id_selecionado, tipo, ambiente,
-                            url=(aws_role_arn.strip() if tipo == "Conta Cloud (AWS)" else url),
+                            url=(aws_role_arn.strip() if tipo == "Cloud" else url),
                             criticidade=crit, score=score, analise=analise,
                             aws_role_arn=(aws_role_arn.strip() if aws_role_arn else None),
                             aws_region=(aws_region.strip() if aws_region else None),
@@ -891,7 +891,7 @@ elif selecionado == "Ativos":
                         comp_score     = c[9]
 
                         st.write(f"**{comp_tipo}** · {comp_ambiente} · Score: {comp_score} · {comp_criticid}")
-                        if comp_tipo == "Conta Cloud (AWS)":
+                        if comp_tipo == "Cloud":
                             st.caption(f"Role ARN: {comp_arn}")
                         else:
                             st.caption(f"URL: {comp_url}")
