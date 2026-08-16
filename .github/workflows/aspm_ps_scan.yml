@@ -39,4 +39,4 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           cd .github/scripts
-          python aspm_main_scan.py
+          python aspm_ps_scan.py
