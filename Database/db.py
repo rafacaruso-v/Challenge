@@ -1,6 +1,7 @@
 import sqlite3
 import bcrypt
 import os
+import secrets
 from datetime import datetime
 
 def conectar():
@@ -66,6 +67,18 @@ def criar_tabela():
             detalhe TEXT,
             origem TEXT,
             data TEXT NOT NULL,
+            FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS api_keys (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            usuario_id INTEGER NOT NULL,
+            chave TEXT UNIQUE NOT NULL,
+            nome TEXT,
+            criado_em TEXT NOT NULL,
+            ultima_utilizacao TEXT,
             FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
         )
     """)
@@ -323,16 +336,23 @@ def criar_admin_padrao():
     conexao = conectar()
     cursor = conexao.cursor()
     cursor.execute("SELECT id FROM usuarios WHERE username = ?", (admin_username,))
-    if cursor.fetchone():
-        return
+    resultado = cursor.fetchone()
 
-    senha_hash = bcrypt.hashpw(admin_senha.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
-    cursor.execute("""
-        INSERT INTO usuarios (username, email, senha_hash, nome, criado_em, role)
-        VALUES (?, ?, ?, ?, ?, 'admin')
-    """, (admin_username, admin_email, senha_hash, "Administrador",
-          datetime.now().strftime("%d/%m/%Y %H:%M")))
-    conexao.commit()
+    if resultado:
+        admin_id = resultado[0]
+    else:
+        senha_hash = bcrypt.hashpw(admin_senha.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+        cursor.execute("""
+            INSERT INTO usuarios (username, email, senha_hash, nome, criado_em, role)
+            VALUES (?, ?, ?, ?, ?, 'admin')
+        """, (admin_username, admin_email, senha_hash, "Administrador",
+              datetime.now().strftime("%d/%m/%Y %H:%M")))
+        conexao.commit()
+        admin_id = cursor.lastrowid
+
+    chave_fixa = os.environ.get("API_KEY")
+    if chave_fixa:
+        garantir_api_key_fixa(admin_id, chave_fixa, "Integração CI/CD (fixa via .env)")
 
 
 def get_intervalo_rescan() -> int:
@@ -520,6 +540,83 @@ def validar_codigo_mfa(usuario_id: int, codigo_digitado: str):
     return True, "Código validado com sucesso."
 
 
+def gerar_api_key(usuario_id: int, nome: str = "Integração CI/CD") -> str:
+    conexao = conectar()
+    cursor = conexao.cursor()
+
+    chave = f"aspm_{secrets.token_urlsafe(32)}"
+
+    cursor.execute("""
+        INSERT INTO api_keys (usuario_id, chave, nome, criado_em)
+        VALUES (?, ?, ?, ?)
+    """, (usuario_id, chave, nome, datetime.now().strftime("%d/%m/%Y %H:%M")))
+    conexao.commit()
+
+    return chave
+
+def garantir_api_key_fixa(usuario_id: int, chave_fixa: str, nome: str = "Integração CI/CD"):
+    if not chave_fixa or not chave_fixa.startswith("aspm_"):
+        return
+
+    conexao = conectar()
+    cursor = conexao.cursor()
+    cursor.execute("""
+        INSERT OR IGNORE INTO api_keys (usuario_id, chave, nome, criado_em)
+        VALUES (?, ?, ?, ?)
+    """, (usuario_id, chave_fixa, nome, datetime.now().strftime("%d/%m/%Y %H:%M")))
+    conexao.commit()
+
+def validar_api_key(chave: str):
+    if not chave or not chave.startswith("aspm_"):
+        return None
+
+    conexao = conectar()
+    cursor = conexao.cursor()
+    cursor.execute("SELECT usuario_id FROM api_keys WHERE chave = ?", (chave,))
+    resultado = cursor.fetchone()
+
+    if resultado is None:
+        return None
+
+    cursor.execute(
+        "UPDATE api_keys SET ultima_utilizacao = ? WHERE chave = ?",
+        (datetime.now().strftime("%d/%m/%Y %H:%M:%S"), chave)
+    )
+    conexao.commit()
+
+    return resultado[0]
+
+def listar_api_keys(usuario_id: int):
+    conexao = conectar()
+    cursor = conexao.cursor()
+    cursor.execute("""
+        SELECT id, chave, nome, criado_em, ultima_utilizacao
+        FROM api_keys WHERE usuario_id = ?
+        ORDER BY id DESC
+    """, (usuario_id,))
+    linhas = cursor.fetchall()
+
+    return [
+        {
+            "id": r[0],
+            "chave_mascarada": f"...{r[1][-6:]}",
+            "nome": r[2],
+            "criado_em": r[3],
+            "ultima_utilizacao": r[4],
+        }
+        for r in linhas
+    ]
+
+def revogar_api_key(usuario_id: int, api_key_id: int):
+    conexao = conectar()
+    cursor = conexao.cursor()
+    cursor.execute(
+        "DELETE FROM api_keys WHERE id = ? AND usuario_id = ?",
+        (api_key_id, usuario_id)
+    )
+    conexao.commit()
+
+
 def criar_ativo(usuario_id, nome, descricao=None, dono=None, criticidade_negocio=None):
     """
     Cria o Ativo pai (sem nenhum componente ainda). Retorna o id gerado,
@@ -594,6 +691,17 @@ def buscar_ativo(usuario_id, ativo_id):
         WHERE usuario_id = ? AND id = ?
     """, (usuario_id, ativo_id))
     return cursor.fetchone()
+
+def buscar_ativo_por_nome(usuario_id, nome):
+    conexao = conectar()
+    cursor = conexao.cursor()
+    cursor.execute("""
+        SELECT id FROM ativos
+        WHERE usuario_id = ? AND nome = ?
+        LIMIT 1
+    """, (usuario_id, nome))
+    resultado = cursor.fetchone()
+    return resultado[0] if resultado else None
 
 def listar_ativos_todos():
     conexao = conectar()

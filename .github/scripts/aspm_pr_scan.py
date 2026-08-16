@@ -1,22 +1,3 @@
-"""
-Script rodado pela GitHub Action em cada Pull Request.
-
-Fluxo:
-1. Roda Semgrep (SAST), Trivy (SCA/secrets/misconfig) e Checkov (IaC) contra
-   o codigo do PR (que ja esta com checkout feito pela Action, entao "." e
-   a raiz do repo).
-2. Formata os achados de forma resumida.
-3. Chama o Gemini para gerar um resumo executivo curto (opcional — se a
-   chave nao estiver configurada, o script segue sem essa parte).
-4. Posta tudo como comentario no Pull Request, usando a API do GitHub.
-
-Variaveis de ambiente esperadas (setadas no workflow YAML):
-- GITHUB_TOKEN : token automatico do GitHub Actions, usado para comentar
-- REPO         : "owner/nome-do-repo" (github.repository)
-- PR_NUMBER    : numero do PR (github.event.pull_request.number)
-- GEMINI_KEY_1 : opcional, chave da API do Gemini para o resumo executivo
-"""
-
 import json
 import os
 import re
@@ -39,9 +20,6 @@ _PADRAO_INJECTION_REGEX = re.compile(
 
 
 def _sanitizar_texto(texto: str) -> str:
-    """Mesma logica de defesa anti-prompt-injection usada em LLMs/gemini.py,
-    aplicada aqui tambem porque o codigo escaneado do PR e conteudo nao
-    confiavel (pode ser de um fork externo, por exemplo)."""
     if not texto:
         return texto
     return _PADRAO_INJECTION_REGEX.sub("[TRECHO_SUSPEITO_REMOVIDO]", texto)
@@ -92,10 +70,6 @@ def rodar_trivy() -> list:
 
 
 def rodar_checkov() -> list:
-    """Roda o Checkov (IaC — Terraform/CloudFormation) contra o repositorio
-    e retorna a lista de checks que falharam. Assim como no checkov.py do
-    projeto principal, nao vem com severidade nativa (Checkov OSS sem conta
-    Bridgecrew/Prisma Cloud) — quem classifica e o resumo via IA mais abaixo."""
     try:
         resultado = subprocess.run(
             ["checkov", "-d", ".", "--compact", "--quiet", "-o", "json"],
@@ -106,7 +80,6 @@ def rodar_checkov() -> list:
             return []
 
         dados = json.loads(saida)
-        # o checkov pode retornar uma lista (multiplos frameworks) ou um dict (um so)
         blocos = dados if isinstance(dados, list) else [dados]
 
         achados = []
@@ -135,9 +108,6 @@ def contar_por_severidade(achados_semgrep: list, achados_trivy: list, achados_ch
         sev = a.get("severidade", "UNKNOWN").upper()
         contagem[sev] = contagem.get(sev, 0) + 1
 
-    # Checkov nao tem severidade nativa — cada achado conta como "MEDIUM"
-    # para efeito de contagem no comentario (nao influencia o exit code de
-    # falha do workflow, que so olha CRITICAL/ERROR/HIGH).
     for _ in achados_checkov:
         contagem["MEDIUM"] += 1
 
@@ -145,9 +115,7 @@ def contar_por_severidade(achados_semgrep: list, achados_trivy: list, achados_ch
 
 
 def gerar_resumo_gemini(achados_semgrep: list, achados_trivy: list, achados_checkov: list) -> str:
-    """Gera um resumo executivo curto via Gemini. Retorna string vazia se a
-    chave nao estiver configurada ou se a chamada falhar — o comentario no
-    PR continua funcionando normalmente sem essa parte."""
+
     chave = os.environ.get("GEMINI_KEY_1", "").strip()
     if not chave:
         return ""

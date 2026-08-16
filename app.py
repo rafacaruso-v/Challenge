@@ -7,6 +7,7 @@ import plotly.express as px
 from streamlit_option_menu import option_menu
 import base64
 import os
+import threading
 import re
 from Scanners.owaspzap import rodar_zap
 from Scanners.semgrep import rodar_semgrep
@@ -74,6 +75,43 @@ st.set_page_config(
 
 criar_tabela()
 render_cookie_manager()
+
+
+@st.cache_resource
+def _iniciar_webhook_background():
+    def _rodar():
+        import uvicorn
+        from API.webhook import app as webhook_app
+        uvicorn.run(webhook_app, host="0.0.0.0", port=8000, log_level="warning")
+ 
+    thread = threading.Thread(target=_rodar, daemon=True)
+    thread.start()
+    return thread
+ 
+ 
+@st.cache_resource
+def _iniciar_ngrok():
+    authtoken = os.environ.get("NGROK_AUTHTOKEN", "").strip()
+    dominio = os.environ.get("NGROK_DOMAIN", "").strip()
+ 
+    if not authtoken:
+        return None
+ 
+    from pyngrok import ngrok, conf
+    conf.get_default().auth_token = authtoken
+ 
+    if dominio:
+        tunnel = ngrok.connect(addr="8000", domain=dominio)
+    else:
+        tunnel = ngrok.connect(addr="8000")
+ 
+    return tunnel
+ 
+_iniciar_webhook_background()
+_tunnel = _iniciar_ngrok()
+if _tunnel:
+    st.session_state["webhook_url_publica"] = _tunnel.public_url
+
 
 CORES_NIVEL = {
     "CRÍTICO":     ("#ff4b4b", "#ff4b4b22"),

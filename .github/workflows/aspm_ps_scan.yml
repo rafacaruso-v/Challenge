@@ -1,24 +1,21 @@
-name: ASPM Security Scan (Pull Request)
+name: ASPM Security Scan (Merge to Main)
 
 on:
-  pull_request:
+  push:
     branches: [main, master]
 
 permissions:
   contents: read
-  pull-requests: write
 
 jobs:
-  aspm-scan:
+  aspm-main-scan:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout do codigo do PR
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          fetch-depth: 0
+      - name: Checkout do codigo
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
 
       - name: Configurar Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: "3.13"
 
@@ -34,10 +31,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y trivy
 
-      - name: Rodar scan e comentar no PR
+      - name: Rodar scan e enviar para a ASPM Platform
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GEMINI_KEY_1: ${{ secrets.ASPM_GEMINI_KEY }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          ASPM_WEBHOOK_URL: ${{ secrets.ASPM_WEBHOOK_URL }}
+          ASPM_API_KEY: ${{ secrets.ASPM_API_KEY }}
           REPO: ${{ github.repository }}
-        run: python .github/scripts/aspm_pr_scan.py
+        run: |
+          cd .github/scripts
+          python aspm_main_scan.py
