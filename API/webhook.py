@@ -2,7 +2,11 @@ from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 
-from Database.db import criar_tabela, validar_api_key, buscar_ativo_por_nome, criar_ativo, adicionar_componente
+from Database.db import (
+    criar_tabela, validar_api_key, buscar_ativo_por_nome, criar_ativo,
+    adicionar_componente, atualizar_componente, buscar_componente_por_tipo,
+    registrar_historico_componente,
+)
 from MachineLearning.risk_score_model import calcular_score_ml, criticidade_por_score
 
 app = FastAPI(title="ASPM Webhook API")
@@ -150,16 +154,30 @@ Revise os achados listados nas abas de detalhamento técnico acima. Este compone
     score = calcular_score_ml(n_critico, n_alto, n_medio, n_baixo, payload.ambiente)
     criticidade = criticidade_por_score(score)
 
-    componente_id = adicionar_componente(
-        usuario_id, ativo_id, tipo="Repositório", ambiente=payload.ambiente,
-        url=payload.pr_url, criticidade=criticidade, score=score, analise=texto_formatado,
-    )
+    componente_id = buscar_componente_por_tipo(usuario_id, ativo_id, tipo="Repositório")
+    componente_criado_agora = False
+
+    if componente_id:
+        atualizar_componente(
+            usuario_id, componente_id,
+            criticidade=criticidade, score=score, analise=texto_formatado,
+            url=payload.pr_url,
+        )
+    else:
+        componente_id = adicionar_componente(
+            usuario_id, ativo_id, tipo="Repositório", ambiente=payload.ambiente,
+            url=payload.pr_url, criticidade=criticidade, score=score, analise=texto_formatado,
+        )
+        componente_criado_agora = True
+
+    registrar_historico_componente(usuario_id, componente_id, ativo_id, score)
 
     return {
         "sucesso": True,
         "ativo_id": ativo_id,
         "ativo_criado_agora": ativo_criado_agora,
         "componente_id": componente_id,
+        "componente_criado_agora": componente_criado_agora,
         "criticidade": criticidade,
         "score": score,
     }

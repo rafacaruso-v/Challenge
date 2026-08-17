@@ -226,10 +226,6 @@ def _migrar_para_modelo_ativo_componente(conexao):
 
 
 def _criar_estrutura_ativos_v2(conexao):
-    """
-    Garante que as tabelas do modelo novo existam mesmo em um banco criado
-    do zero (sem nunca ter passado pelo schema legado).
-    """
     cursor = conexao.cursor()
 
     cursor.execute("""
@@ -618,11 +614,6 @@ def revogar_api_key(usuario_id: int, api_key_id: int):
 
 
 def criar_ativo(usuario_id, nome, descricao=None, dono=None, criticidade_negocio=None):
-    """
-    Cria o Ativo pai (sem nenhum componente ainda). Retorna o id gerado,
-    que deve ser usado em seguida para adicionar componentes com
-    adicionar_componente().
-    """
     conexao = conectar()
     cursor = conexao.cursor()
     agora = datetime.now().strftime("%d/%m/%Y %H:%M")
@@ -655,19 +646,6 @@ def atualizar_ativo(usuario_id, ativo_id, nome=None, descricao=None, dono=None, 
     conexao.commit()
 
 def listar_ativos_db(usuario_id):
-    """
-    Retorna os Ativos (pais) do usuário já com criticidade/score agregados
-    a partir dos componentes (regra 'pior caso'), via vw_ativos_resumo.
-
-    Colunas retornadas, nesta ordem:
-    0: id                    5: total_componentes
-    1: usuario_id            6: score_minimo
-    2: nome                  7: score_maximo
-    3: descricao             8: score_medio
-    4: dono                  9: criticidade_negocio
-                              10: criticidade_agregada
-                              11: ultima_analise
-    """
     conexao = conectar()
     cursor = conexao.cursor()
     cursor.execute("""
@@ -717,10 +695,6 @@ def listar_ativos_todos():
     return cursor.fetchall()
 
 def deletar_ativo(usuario_id, ativo_id):
-    """
-    Remove o ativo e, em cascata (via FOREIGN KEY ... ON DELETE CASCADE),
-    todos os seus componentes e o histórico associado.
-    """
     conexao = conectar()
     cursor = conexao.cursor()
     cursor.execute("SELECT nome FROM ativos WHERE id = ? AND usuario_id = ?", (ativo_id, usuario_id))
@@ -736,11 +710,6 @@ def adicionar_componente(
     url=None, criticidade=None, score=None, analise=None,
     aws_role_arn=None, aws_region=None
 ):
-    """
-    Vincula um novo componente técnico a um Ativo já existente. Pode ser
-    chamado quantas vezes for preciso para o mesmo ativo_id (ex: repo +
-    instância de produção + instância de homologação).
-    """
     conexao = conectar()
     cursor = conexao.cursor()
     cursor.execute("""
@@ -757,18 +726,30 @@ def adicionar_componente(
     conexao.commit()
     return cursor.lastrowid
 
-def atualizar_componente(usuario_id, componente_id, criticidade, score, analise):
-    """Atualiza o resultado de uma nova análise/scan sobre um componente
-    já existente (ex: re-scan agendado)."""
+def buscar_componente_por_tipo(usuario_id, ativo_id, tipo):
+
+    conexao = conectar()
+    cursor = conexao.cursor()
+    cursor.execute("""
+        SELECT id FROM ativo_componentes
+        WHERE usuario_id = ? AND ativo_id = ? AND tipo = ?
+        LIMIT 1
+    """, (usuario_id, ativo_id, tipo))
+    resultado = cursor.fetchone()
+    return resultado[0] if resultado else None
+
+def atualizar_componente(usuario_id, componente_id, criticidade, score, analise, url=None):
     conexao = conectar()
     cursor = conexao.cursor()
     cursor.execute("""
         UPDATE ativo_componentes
-        SET criticidade = ?, score = ?, analise = ?, ultima_analise = ?
+        SET criticidade = ?, score = ?, analise = ?, ultima_analise = ?,
+            url = COALESCE(?, url)
         WHERE id = ? AND usuario_id = ?
     """, (
         criticidade, score, analise,
         datetime.now().strftime("%d/%m/%Y %H:%M"),
+        url,
         componente_id, usuario_id
     ))
     conexao.commit()
