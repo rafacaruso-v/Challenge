@@ -3,10 +3,10 @@ vulnerabilities:
     paths:
       - "usr/local/bin/gitleaks"
     statement: >
-      Binario pre-compilado do Gitleaks (upstream). CVEs na stdlib/x-crypto/x-text
-      do Go embutidas no binario; v8.30.1 e a versao mais recente disponivel e o
-      projeto ja declarou foco apenas em patches de seguranca, sem previsao de
-      rebuild com Go mais novo. Nao e codigo da aplicacao - risco aceito ate o
+      Binário pré-compilado do Gitleaks (upstream). CVEs na stdlib/x-crypto/x-text
+      do Go embutidas no binário; v8.30.1 é a versão mais recente disponível e o
+      projeto já declarou foco apenas em patches de segurança, sem previsão de
+      rebuild com Go mais novo. Não é código da aplicação - risco aceito até o
       upstream recompilar. Revisar a cada bump do Dependabot no ecosystem docker.
 
   - id: "CVE-2026-69244"
@@ -14,14 +14,14 @@ vulnerabilities:
       Out-of-bounds heap read no parser C de resposta HTTP do aiohttp (< 3.14.3), disparado
       apenas quando o cliente recebe uma resposta chunked malformada de um servidor
       malicioso/comprometido. Impacto limitado a DoS (crash do processo cliente) - sem
-      RCE, sem leak de dados, sem escalonamento de privilegio. Motivo da supressao: o aiohttp
-      aqui e dependencia transitiva do Checkov (exigido como aiohttp<3.14.0,>=3.8.0 pelo
-      checkov==3.3.9, a versao mais recente disponivel no momento). Nao ha combinacao de
-      versoes publicada que resolva simultaneamente o CVE e a constraint do Checkov.
-      Avaliacao de risco: projeto academico, aplicacao executada localmente, sem exposicao
-      publica de rede e sem usuarios externos. O unico vetor de exploracao exigiria um
-      servidor malicioso respondendo a requisicoes feitas pelo Checkov (ex: registries de
-      modulos IaC) - cenario nao aplicavel aqui. Risco aceito.
+      RCE, sem leak de dados, sem escalonamento de privilégio. Motivo da supressão: o aiohttp
+      aqui é dependência transitiva do Checkov (exigido como aiohttp<3.14.0,>=3.8.0 pelo
+      checkov==3.3.9, a versão mais recente disponível no momento). Não há combinação de
+      versões publicada que resolva simultaneamente o CVE e a constraint do Checkov.
+      Avaliação de risco: projeto acadêmico, aplicação executada localmente, sem exposição
+      pública de rede e sem usuários externos. O único vetor de exploração exigiria um
+      servidor malicioso respondendo a requisições feitas pelo Checkov (ex: registries de
+      módulos IaC) - cenário não aplicável aqui. Risco aceito.
 
   - id: "CVE-2026-0994"
     statement: >
