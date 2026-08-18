@@ -12,3 +12,16 @@ updates:
           - "*"
     commit-message:
       prefix: "Resume: "
+
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    groups:
+      docker:
+        patterns:
+          - "*"
+    commit-message:
+      prefix: "Resume: "
