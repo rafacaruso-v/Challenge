@@ -12,8 +12,15 @@ import re
 from Scanners.owaspzap import rodar_zap
 from Scanners.semgrep import rodar_semgrep
 from Scanners.trivy import rodar_trivy
+from Scanners.gitleaks import rodar_gitleaks
+from Scanners.dlp import rodar_dlp_scan as rodar_dlp
 from CloudAws.cspm import run_cspm_scan
-from LLMs.gemini import formatar_achados_cspm, formatar_achados_iac
+from LLMs.gemini import (
+    formatar_achados_cspm,
+    formatar_achados_iac,
+    formatar_achados_secrets,
+    formatar_achados_dlp,
+)
 from Scanners.checkov import rodar_checkov
 from NLP.nlp import tela_chatbot
 from LLMs.gemini import analisar_vulnerabilidades
@@ -380,8 +387,48 @@ def _render_cards(conteudo: str):
         """, unsafe_allow_html=True)
         i += 3
 
+
+def _render_inventario_cloud():
+    """
+    Renderiza o resumo do inventário descoberto automaticamente na conta AWS
+    (todos os recursos existentes, não apenas os que têm achado de segurança),
+    unificado dentro da própria aba de CSPM.
+    """
+    inventario = st.session_state.get("_ultimo_inventario_cloud")
+    if not inventario:
+        return
+
+    n_buckets = len(inventario.get("buckets_s3", []))
+    n_usuarios = len(inventario.get("usuarios_iam", []))
+    n_sgs = len(inventario.get("security_groups", []))
+    n_instancias = len(inventario.get("instancias_ec2", []))
+
+    st.markdown("**📋 Inventário descoberto na conta**")
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Buckets S3", n_buckets)
+    col2.metric("Usuários IAM", n_usuarios)
+    col3.metric("Security Groups", n_sgs)
+    col4.metric("Instâncias EC2", n_instancias)
+
+    with st.expander("Ver detalhes do inventário"):
+        if inventario.get("buckets_s3"):
+            st.write("**Buckets S3:**", ", ".join(inventario["buckets_s3"]))
+        if inventario.get("usuarios_iam"):
+            st.write("**Usuários IAM:**", ", ".join(inventario["usuarios_iam"]))
+        if inventario.get("security_groups"):
+            st.write("**Security Groups:**", ", ".join(
+                f"{sg['nome']} ({sg['id']})" for sg in inventario["security_groups"]
+            ))
+        if inventario.get("instancias_ec2"):
+            st.write("**Instâncias EC2:**", ", ".join(
+                f"{i['nome']} ({i['tipo']}, {i['estado']})" for i in inventario["instancias_ec2"]
+            ))
+        if inventario.get("erros"):
+            st.caption(f"⚠️ Erros ao coletar parte do inventário: {'; '.join(inventario['erros'])}")
+
+
 def _parse_blocos(texto_completo):
-    sast_dast = sca = cspm = iac = fp = relatorio = ""
+    sast_dast = sca = cspm = iac = secrets = dlp = fp = relatorio = ""
 
     if "---VULNS_SAST_DAST---" in texto_completo:
         sast_dast = texto_completo.split("---VULNS_SAST_DAST---")[1].split("---VULNS_SCA---")[0].strip()
@@ -401,11 +448,25 @@ def _parse_blocos(texto_completo):
             cspm = resto.split("---RELATORIO---")[0].strip()
             resto = ""
 
-        if resto and "---VULNS_FP---" in resto:
-            iac = resto.split("---VULNS_FP---")[0].strip()
-            resto = resto.split("---VULNS_FP---")[1]
+        if resto and "---VULNS_SECRETS---" in resto:
+            iac = resto.split("---VULNS_SECRETS---")[0].strip()
+            resto = resto.split("---VULNS_SECRETS---")[1]
         elif resto:
             iac = resto.split("---RELATORIO---")[0].strip()
+            resto = ""
+
+        if resto and "---VULNS_DLP---" in resto:
+            secrets = resto.split("---VULNS_DLP---")[0].strip()
+            resto = resto.split("---VULNS_DLP---")[1]
+        elif resto:
+            secrets = resto.split("---RELATORIO---")[0].strip()
+            resto = ""
+
+        if resto and "---VULNS_FP---" in resto:
+            dlp = resto.split("---VULNS_FP---")[0].strip()
+            resto = resto.split("---VULNS_FP---")[1]
+        elif resto:
+            dlp = resto.split("---RELATORIO---")[0].strip()
             resto = ""
 
         if resto and "---RELATORIO---" in resto:
@@ -429,7 +490,7 @@ def _parse_blocos(texto_completo):
     if "---RELATORIO---" in texto_completo:
         relatorio = texto_completo.split("---RELATORIO---")[1].strip()
 
-    return sast_dast, sca, cspm, iac, fp, relatorio
+    return sast_dast, sca, cspm, iac, secrets, dlp, fp, relatorio
 
 def _render_sast_dast(conteudo: str):
     if "---DIVISOR---" in conteudo:
@@ -444,7 +505,7 @@ def _render_sast_dast(conteudo: str):
     else:
         _render_cards(conteudo)
 
-def _exibir_abas(tipo, sast_dast_conteudo, sca_conteudo, cspm_conteudo="", iac_conteudo=""):
+def _exibir_abas(tipo, sast_dast_conteudo, sca_conteudo, cspm_conteudo="", iac_conteudo="", secrets_conteudo="", dlp_conteudo=""):
     abas_labels = []
     conteudos = []
 
@@ -458,6 +519,12 @@ def _exibir_abas(tipo, sast_dast_conteudo, sca_conteudo, cspm_conteudo="", iac_c
         abas_labels.append("🏗️ Relatório IaC")
         conteudos.append(("cards", iac_conteudo))
 
+        abas_labels.append("🔑 Relatório Secrets")
+        conteudos.append(("cards", secrets_conteudo))
+
+        abas_labels.append("📇 Relatório DLP")
+        conteudos.append(("cards", dlp_conteudo))
+
     elif tipo in ("API", "Aplicação"):
         bloco_dast = sast_dast_conteudo.split("---DIVISOR---")[1].strip() if "---DIVISOR---" in sast_dast_conteudo else sast_dast_conteudo
         abas_labels.append("🌐 Relatório DAST")
@@ -465,7 +532,7 @@ def _exibir_abas(tipo, sast_dast_conteudo, sca_conteudo, cspm_conteudo="", iac_c
 
     elif tipo == "Cloud":
         abas_labels.append("☁️ Relatório CSPM")
-        conteudos.append(("cards", cspm_conteudo))
+        conteudos.append(("cloud_com_inventario", cspm_conteudo))
 
     if not abas_labels:
         st.info("Nenhum relatório técnico disponível para este tipo de componente.")
@@ -476,6 +543,10 @@ def _exibir_abas(tipo, sast_dast_conteudo, sca_conteudo, cspm_conteudo="", iac_c
         with aba:
             if modo == "sast_dast":
                 _render_sast_dast(conteudo)
+            elif modo == "cloud_com_inventario":
+                _render_inventario_cloud()
+                st.markdown("<hr class='vuln-divider'>", unsafe_allow_html=True)
+                _render_cards(conteudo)
             else:
                 _render_cards(conteudo)
 
@@ -543,7 +614,8 @@ def exibir_alertas_banner():
 def _executar_scanners_e_analisar(tipo, url, ambiente, aws_role_arn=None, aws_region=None):
 
     if tipo == "Cloud":
-        achados = run_cspm_scan(aws_role_arn.strip(), aws_region.strip() or "us-east-2")
+        achados, inventario = run_cspm_scan(aws_role_arn.strip(), aws_region.strip() or "us-east-2")
+        st.session_state["_ultimo_inventario_cloud"] = inventario
         texto_cspm = formatar_achados_cspm(achados)
         crit, score, analise = analisar_vulnerabilidades(
             tipo="Cloud",
@@ -558,6 +630,8 @@ def _executar_scanners_e_analisar(tipo, url, ambiente, aws_role_arn=None, aws_re
 
     res_sast = res_dast = res_sca = ""
     res_iac = formatar_achados_iac([])
+    res_secrets = formatar_achados_secrets([])
+    res_dlp = formatar_achados_dlp([])
 
     if tipo == "Repositório":
         from Scanners.repo_utils import preparar_repositorio, limpar_repositorio
@@ -573,6 +647,10 @@ def _executar_scanners_e_analisar(tipo, url, ambiente, aws_role_arn=None, aws_re
             res_sca  = rodar_trivy(caminho_local)
             res_iac_bruto = rodar_checkov(caminho_local)
             res_iac = formatar_achados_iac(res_iac_bruto)
+            res_secrets_bruto = rodar_gitleaks(caminho_local)
+            res_secrets = formatar_achados_secrets(res_secrets_bruto)
+            res_dlp_bruto = rodar_dlp(caminho_local)
+            res_dlp = formatar_achados_dlp(res_dlp_bruto)
         finally:
             if deve_limpar:
                 limpar_repositorio(caminho_local)
@@ -598,9 +676,16 @@ def _executar_scanners_e_analisar(tipo, url, ambiente, aws_role_arn=None, aws_re
     if isinstance(res_sca, str) and res_sca.startswith("ERRO:"):
         st.error(f"❌ Erro no Trivy: {res_sca.replace('ERRO:', '').strip()}")
         st.stop()
+    if isinstance(res_secrets, str) and res_secrets.startswith("ERRO:"):
+        st.error(f"❌ Erro no Gitleaks: {res_secrets.replace('ERRO:', '').strip()}")
+        st.stop()
+    if isinstance(res_dlp, str) and res_dlp.startswith("ERRO:"):
+        st.error(f"❌ Erro no DLP: {res_dlp.replace('ERRO:', '').strip()}")
+        st.stop()
 
     crit, score, analise = analisar_vulnerabilidades(
-        tipo, url, ambiente, res_sast, res_dast, res_sca, resultado_iac=res_iac
+        tipo, url, ambiente, res_sast, res_dast, res_sca,
+        resultado_iac=res_iac, resultado_secrets=res_secrets, resultado_dlp=res_dlp
     )
     return crit, score, analise, None
 
@@ -842,9 +927,9 @@ elif selecionado == "Análises":
                             origem=f"Scanner - {tipo}")
                         st.success("✅ Componente adicionado ao ativo!")
                         st.metric("Risk Score", score)
-                        sast_dast_c, sca_c, cspm_c, iac_c, fp_c, rel_c = _parse_blocos(analise)
+                        sast_dast_c, sca_c, cspm_c, iac_c, secrets_c, dlp_c, fp_c, rel_c = _parse_blocos(analise)
                         st.markdown("<br><h3>📋 Resultados Detalhados</h3>", unsafe_allow_html=True)
-                        _exibir_abas(tipo, sast_dast_c, sca_c, cspm_c, iac_c)
+                        _exibir_abas(tipo, sast_dast_c, sca_c, cspm_c, iac_c, secrets_c, dlp_c)
                         _exibir_relatorio_e_fp(rel_c, fp_c)
                 except Exception as e:
                     st.error(f"Erro inesperado: {e}")
@@ -953,8 +1038,8 @@ elif selecionado == "Vulnerabilidades":
         if componente_selecionado:
             dados = opcoes_componentes[componente_selecionado]
             try:
-                sast_dast_c, sca_c, cspm_c, iac_c, _, _ = _parse_blocos(dados[10])
-                _exibir_abas(dados[3], sast_dast_c, sca_c, cspm_c, iac_c)
+                sast_dast_c, sca_c, cspm_c, iac_c, secrets_c, dlp_c, _, _ = _parse_blocos(dados[10])
+                _exibir_abas(dados[3], sast_dast_c, sca_c, cspm_c, iac_c, secrets_c, dlp_c)
             except IndexError:
                 st.warning("⚠️ O texto da análise está corrompido ou em formato antigo.")
     else:
@@ -971,7 +1056,7 @@ elif selecionado == "Relatórios":
         componente_sel = st.selectbox("Selecione o componente:", options=list(opcoes_componentes.keys()), filter_mode=None)
         if componente_sel:
             dados = opcoes_componentes[componente_sel]
-            sast_dast_c, sca_c, cspm_c, iac_c, fp_c, rel_c = _parse_blocos(dados[10])
+            sast_dast_c, sca_c, cspm_c, iac_c, secrets_c, dlp_c, fp_c, rel_c = _parse_blocos(dados[10])
             if rel_c:
                 from gerar_pdf import gerar_pdf_relatorio
                 ativo_dict = {

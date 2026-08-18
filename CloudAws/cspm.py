@@ -4,22 +4,10 @@ from CloudAws.s3_checks import check_s3
 from CloudAws.iam_checks import check_iam
 from CloudAws.ec2_checks import check_security_groups
 from CloudAws.account_checks import check_password_policy, check_root_mfa
+from CloudAws.inventory import descobrir_inventario
 
 
 def run_cspm_scan(role_arn: str, region: str = "us-east-1"):
-    """
-    Orquestra todos os checks de CSPM (Cloud Security Posture Management)
-    contra a conta AWS do usuario, assumindo a role informada via
-    AssumeRole (credenciais temporarias), e retorna uma lista consolidada
-    de achados.
-
-    Cada achado segue o formato:
-    {
-        "criticidade": "CRITICO" | "ALTO" | "MEDIO" | "BAIXO" | "INFO",
-        "recurso": str,
-        "descricao": str
-    }
-    """
     hub_access_key = os.environ.get("AWS_HUB_ACCESS_KEY")
     hub_secret_key = os.environ.get("AWS_HUB_SECRET_KEY")
     external_id = os.environ.get("AWS_EXTERNAL_ID")
@@ -38,4 +26,6 @@ def run_cspm_scan(role_arn: str, region: str = "us-east-1"):
     achados += check_password_policy(session)
     achados += check_root_mfa(session)
 
-    return achados
+    inventario = descobrir_inventario(session)
+
+    return achados, inventario

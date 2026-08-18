@@ -12,7 +12,6 @@ def check_iam(session):
     for u in users:
         username = u["UserName"]
 
-        # Policies anexadas diretamente
         try:
             attached = iam.list_attached_user_policies(UserName=username)["AttachedPolicies"]
             for p in attached:
@@ -25,7 +24,6 @@ def check_iam(session):
         except Exception:
             pass
 
-        # MFA
         try:
             mfa = iam.list_mfa_devices(UserName=username)["MFADevices"]
             if not mfa:
@@ -37,7 +35,6 @@ def check_iam(session):
         except Exception:
             pass
 
-        # Idade das access keys
         try:
             keys = iam.list_access_keys(UserName=username)["AccessKeyMetadata"]
             for k in keys:
