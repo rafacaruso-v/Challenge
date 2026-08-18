@@ -181,6 +181,7 @@ jobs:
           output: 'trivy-image.sarif'
           severity: 'HIGH,CRITICAL'
           ignore-unfixed: true
+          trivyignores: '.trivyignore.yaml'
           exit-code: '0'
 
       - name: Upload image scan report
@@ -198,6 +199,7 @@ jobs:
           format: 'table'
           severity: 'HIGH,CRITICAL'
           ignore-unfixed: true
+          trivyignores: '.trivyignore.yaml'
           exit-code: '1'
 
       - name: Comment PR on container failure
