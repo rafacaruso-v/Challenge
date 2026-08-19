@@ -73,7 +73,6 @@ div[data-baseweb="select"] * {
 
 st.html(estilo_cursor)
 
-
 st.set_page_config(
     page_title="ASPM Platform",
     page_icon="logo.ico",
@@ -82,7 +81,6 @@ st.set_page_config(
 
 criar_tabela()
 render_cookie_manager()
-
 
 @st.cache_resource
 def _iniciar_webhook_background():

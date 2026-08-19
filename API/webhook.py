@@ -38,6 +38,22 @@ class AchadoCheckov(BaseModel):
     arquivo: str = "?"
 
 
+class AchadoGitleaks(BaseModel):
+    regra: str = "?"
+    arquivo: str = "?"
+    linha: str = "?"
+    descricao: str = ""
+    segredo_mascarado: str = "***"
+
+
+class AchadoDLP(BaseModel):
+    tipo: str = "?"
+    arquivo: str = "?"
+    linha: str = "?"
+    valor_mascarado: str = "***"
+    confianca: str = "media"
+
+
 class PayloadPrScan(BaseModel):
     repositorio: str
     ambiente: Optional[str] = "Produção"
@@ -46,11 +62,15 @@ class PayloadPrScan(BaseModel):
     achados_semgrep: list[AchadoSemgrep] = []
     achados_trivy: list[AchadoTrivy] = []
     achados_checkov: list[AchadoCheckov] = []
+    achados_gitleaks: list[AchadoGitleaks] = []
+    achados_dlp: list[AchadoDLP] = []
 
 
 _MAPA_SEMGREP = {"ERROR": "critico", "WARNING": "medio", "INFO": "baixo"}
 _MAPA_TRIVY = {"CRITICAL": "critico", "HIGH": "alto", "MEDIUM": "medio", "LOW": "baixo"}
 _EMOJI_NIVEL = {"critico": ("🔴", "Crítico"), "alto": ("🟠", "Alto"), "medio": ("🟡", "Médio"), "baixo": ("🟢", "Baixo")}
+_SEVERIDADE_PADRAO_SECRETS = "alto"
+_MAPA_DLP_CONFIANCA = {"alta": "alto", "media": "medio"}
 
 
 def _bucketizar_sast(achados: list) -> dict:
@@ -76,6 +96,23 @@ def _bucketizar_iac(achados: list) -> dict:
     for a in achados:
         texto = f"{a.recurso}: {a.check_name} ({a.check_id}) em {a.arquivo}"
         baldes["medio"].append(texto)
+    return baldes
+
+
+def _bucketizar_secrets(achados: list) -> dict:
+    baldes = {"critico": [], "alto": [], "medio": [], "baixo": []}
+    for a in achados:
+        texto = f"Credencial do tipo '{a.regra}' detectada em {a.arquivo}:{a.linha}."
+        baldes[_SEVERIDADE_PADRAO_SECRETS].append(texto)
+    return baldes
+
+
+def _bucketizar_dlp(achados: list) -> dict:
+    baldes = {"critico": [], "alto": [], "medio": [], "baixo": []}
+    for a in achados:
+        nivel = _MAPA_DLP_CONFIANCA.get(a.confianca, "medio")
+        texto = f"Dado do tipo '{a.tipo}' encontrado em {a.arquivo}:{a.linha} (confiança: {a.confianca})."
+        baldes[nivel].append(texto)
     return baldes
 
 
@@ -118,12 +155,16 @@ def receber_scan_pr(payload: PayloadPrScan, authorization: str = Header(None)):
     baldes_sast = _bucketizar_sast(payload.achados_semgrep)
     baldes_sca = _bucketizar_sca(payload.achados_trivy)
     baldes_iac = _bucketizar_iac(payload.achados_checkov)
+    baldes_secrets = _bucketizar_secrets(payload.achados_gitleaks)
+    baldes_dlp = _bucketizar_dlp(payload.achados_dlp)
 
     bloco_sast = _montar_bloco(baldes_sast) or "✅ Nenhuma vulnerabilidade encontrada pelo SAST.\n"
     bloco_dast = "✅ Nenhuma vulnerabilidade encontrada pelo DAST.\n"
     bloco_sca = _montar_bloco(baldes_sca) or "✅ Nenhuma vulnerabilidade de dependências encontrada.\n"
     bloco_cspm = "✅ Nenhum achado de postura de nuvem encontrado.\n"
     bloco_iac = _montar_bloco(baldes_iac) or "✅ Nenhum achado de infraestrutura como código encontrado.\n"
+    bloco_secrets = _montar_bloco(baldes_secrets) or "✅ Nenhuma credencial exposta encontrada.\n"
+    bloco_dlp = _montar_bloco(baldes_dlp) or "✅ Nenhum dado sensível de terceiros encontrado.\n"
     bloco_fp = "✅ Nenhum achado foi identificado como falso positivo nesta análise.\n"
 
     texto_formatado = f"""---VULNS_SAST_DAST---
@@ -136,6 +177,10 @@ def receber_scan_pr(payload: PayloadPrScan, authorization: str = Header(None)):
 {bloco_cspm.strip()}
 ---VULNS_IAC---
 {bloco_iac.strip()}
+---VULNS_SECRETS---
+{bloco_secrets.strip()}
+---VULNS_DLP---
+{bloco_dlp.strip()}
 ---VULNS_FP---
 {bloco_fp.strip()}
 ---RELATORIO---
@@ -146,10 +191,11 @@ def receber_scan_pr(payload: PayloadPrScan, authorization: str = Header(None)):
 Revise os achados listados nas abas de detalhamento técnico acima. Este componente foi gerado automaticamente a partir de um Pull Request{f' ({payload.pr_url})' if payload.pr_url else ''}.
 """
 
-    n_critico = sum(_contar(b)["critico"] for b in (baldes_sast, baldes_sca, baldes_iac))
-    n_alto = sum(_contar(b)["alto"] for b in (baldes_sast, baldes_sca, baldes_iac))
-    n_medio = sum(_contar(b)["medio"] for b in (baldes_sast, baldes_sca, baldes_iac))
-    n_baixo = sum(_contar(b)["baixo"] for b in (baldes_sast, baldes_sca, baldes_iac))
+    todos_baldes = (baldes_sast, baldes_sca, baldes_iac, baldes_secrets, baldes_dlp)
+    n_critico = sum(_contar(b)["critico"] for b in todos_baldes)
+    n_alto = sum(_contar(b)["alto"] for b in todos_baldes)
+    n_medio = sum(_contar(b)["medio"] for b in todos_baldes)
+    n_baixo = sum(_contar(b)["baixo"] for b in todos_baldes)
 
     score = calcular_score_ml(n_critico, n_alto, n_medio, n_baixo, payload.ambiente)
     criticidade = criticidade_por_score(score)
