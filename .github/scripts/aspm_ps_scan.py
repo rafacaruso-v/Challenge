@@ -152,10 +152,6 @@ def _e_arquivo_de_teste(caminho: str) -> bool:
 
 
 def rodar_dlp(caminho: str = "."):
-    """
-    Varre o repositorio em busca de CPF, CNPJ, cartao de credito e e-mail,
-    aplicando validacao matematica real antes de reportar qualquer achado.
-    """
     achados = []
 
     for raiz, dirs, arquivos in os.walk(caminho):
