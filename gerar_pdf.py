@@ -270,10 +270,17 @@ def _ferramentas_por_tipo(tipo: str) -> list:
         return [
             ["Semgrep", "SAST", "Análise estática de código-fonte", "semgrep.dev"],
             ["Trivy", "SCA", "Análise de composição de software e dependências vulneráveis", "aquasecurity.github.io"],
+            ["Checkov", "IaC", "Análise de segurança de Infraestrutura como Código (Terraform/CloudFormation)", "checkov.io"],
+            ["Gitleaks", "Secrets", "Detecção de credenciais e segredos expostos no código-fonte", "gitleaks.io"],
+            ["DLP Scanner", "DLP", "Detecção de dados sensíveis de terceiros (CPF, CNPJ, cartão, e-mail)", "ASPM Platform"],
         ] + base
     elif tipo in ["API", "Aplicação"]:
         return [
             ["OWASP ZAP", "DAST", "Análise dinâmica da aplicação em execução", "zaproxy.org"],
+        ] + base
+    elif tipo == "Cloud":
+        return [
+            ["CSPM (ASPM Platform)", "CSPM", "Análise de postura de segurança da conta AWS (S3/IAM/EC2/Conta)", "ASPM Platform"],
         ] + base
     return base
 
@@ -303,53 +310,27 @@ def _parse_markdown(texto: str, estilos) -> list:
     return flowables
 
 
-def _secao_vulnerabilidades(story, analise: str, estilos):
-    if "[NIVEL:" not in analise:
-        return
-
-    story.append(Paragraph("2. Vulnerabilidades Identificadas", estilos["secao"]))
-    _linha_hr(story)
-
+def _contar_niveis(texto: str) -> dict:
     contagem = {"critico": 0, "alto": 0, "medio": 0, "baixo": 0}
-    blocos_count = re.split(r'\[NIVEL:(\w+)\](.*?)\[/NIVEL\]', analise, flags=re.DOTALL)
+    if not texto or "[NIVEL:" not in texto:
+        return contagem
+
+    blocos = re.split(r'\[NIVEL:(\w+)\](.*?)\[/NIVEL\]', texto, flags=re.DOTALL)
     j = 1
-    while j < len(blocos_count) - 2:
-        nivel_c = blocos_count[j].strip()
-        resto_c = blocos_count[j+2]
-        itens_c = [l for l in resto_c.split("\n") if l.strip().startswith("- ")]
-        if nivel_c in contagem:
-            contagem[nivel_c] += len(itens_c) if itens_c else 1
+    while j < len(blocos) - 2:
+        nivel = blocos[j].strip()
+        resto = blocos[j+2]
+        itens = [l for l in resto.split("\n") if l.strip().startswith("- ")]
+        if nivel in contagem:
+            contagem[nivel] += len(itens) if itens else 1
         j += 3
 
-    lbl = ParagraphStyle("lbl3", fontName="Helvetica-Bold", fontSize=8, textColor=TEXTO_CLARO)
-    resumo_data = [[
-        Paragraph("Criticas", lbl), Paragraph("Altas", lbl),
-        Paragraph("Medias", lbl), Paragraph("Baixas", lbl),
-    ], [
-        Paragraph(str(contagem["critico"]), ParagraphStyle("rc", fontName="Helvetica-Bold", fontSize=16, textColor=CRITICO, leading=19, alignment=TA_CENTER)),
-        Paragraph(str(contagem["alto"]),    ParagraphStyle("ra", fontName="Helvetica-Bold", fontSize=16, textColor=ALTO, leading=19, alignment=TA_CENTER)),
-        Paragraph(str(contagem["medio"]),   ParagraphStyle("rm", fontName="Helvetica-Bold", fontSize=16, textColor=MEDIO, leading=19, alignment=TA_CENTER)),
-        Paragraph(str(contagem["baixo"]),   ParagraphStyle("rb", fontName="Helvetica-Bold", fontSize=16, textColor=BAIXO, leading=19, alignment=TA_CENTER)),
-    ]]
-    tr = Table(resumo_data, colWidths=[42*mm]*4)
-    tr.setStyle(TableStyle([
-        ("BACKGROUND",    (0,0), (-1,0), FUNDO_LINHA),
-        ("BACKGROUND",    (0,1), (-1,1), BRANCO),
-        ("BOX",           (0,0), (-1,-1), 0.5, BORDA),
-        ("GRID",          (0,0), (-1,-1), 0.3, BORDA),
-        ("ALIGN",         (0,0), (-1,-1), "CENTER"),
-        ("VALIGN",        (0,0), (-1,-1), "MIDDLE"),
-        ("TOPPADDING",    (0,0), (-1,-1), 6),
-        ("BOTTOMPADDING", (0,0), (-1,-1), 6),
-        ("LINEABOVE",     (0,1), (0,1), 3, CRITICO),
-        ("LINEABOVE",     (1,1), (1,1), 3, ALTO),
-        ("LINEABOVE",     (2,1), (2,1), 3, MEDIO),
-        ("LINEABOVE",     (3,1), (3,1), 3, BAIXO),
-    ]))
-    story.append(tr)
-    story.append(Spacer(1, 10))
+    return contagem
 
-    blocos = re.split(r'\[NIVEL:(\w+)\](.*?)\[/NIVEL\]', analise, flags=re.DOTALL)
+
+def _render_itens_por_nivel(story, texto: str):
+    """Renderiza os cards de achados de UM bloco/categoria específica."""
+    blocos = re.split(r'\[NIVEL:(\w+)\](.*?)\[/NIVEL\]', texto, flags=re.DOTALL)
     i = 1
     while i < len(blocos) - 2:
         nivel  = blocos[i].strip()
@@ -386,6 +367,66 @@ def _secao_vulnerabilidades(story, analise: str, estilos):
         story.append(t)
         story.append(Spacer(1, 5))
         i += 3
+
+
+def _secao_vulnerabilidades(story, secoes: dict, estilos):
+    """
+    `secoes` é um dict ORDENADO {titulo_da_categoria: texto_bruto_do_bloco},
+    ex: {"SAST / Análise Estática": sast_dast, "SCA / Dependências": sca, ...}.
+
+    Diferente da versão anterior (que recebia um único blob de texto já
+    misturando SCA+CSPM+IaC+Secrets+DLP), aqui cada categoria é renderizada
+    em sua própria subseção, com título identificando a origem do achado —
+    evita que uma credencial exposta (Secrets) apareça no relatório como se
+    fosse um achado de SCA, por exemplo.
+    """
+    secoes_com_achados = {
+        titulo: texto for titulo, texto in secoes.items()
+        if texto and "[NIVEL:" in texto
+    }
+    if not secoes_com_achados:
+        return
+
+    story.append(Paragraph("2. Vulnerabilidades Identificadas", estilos["secao"]))
+    _linha_hr(story)
+
+    contagem_total = {"critico": 0, "alto": 0, "medio": 0, "baixo": 0}
+    for texto in secoes_com_achados.values():
+        c = _contar_niveis(texto)
+        for nivel in contagem_total:
+            contagem_total[nivel] += c[nivel]
+
+    lbl = ParagraphStyle("lbl3", fontName="Helvetica-Bold", fontSize=8, textColor=TEXTO_CLARO)
+    resumo_data = [[
+        Paragraph("Criticas", lbl), Paragraph("Altas", lbl),
+        Paragraph("Medias", lbl), Paragraph("Baixas", lbl),
+    ], [
+        Paragraph(str(contagem_total["critico"]), ParagraphStyle("rc", fontName="Helvetica-Bold", fontSize=16, textColor=CRITICO, leading=19, alignment=TA_CENTER)),
+        Paragraph(str(contagem_total["alto"]),    ParagraphStyle("ra", fontName="Helvetica-Bold", fontSize=16, textColor=ALTO, leading=19, alignment=TA_CENTER)),
+        Paragraph(str(contagem_total["medio"]),   ParagraphStyle("rm", fontName="Helvetica-Bold", fontSize=16, textColor=MEDIO, leading=19, alignment=TA_CENTER)),
+        Paragraph(str(contagem_total["baixo"]),   ParagraphStyle("rb", fontName="Helvetica-Bold", fontSize=16, textColor=BAIXO, leading=19, alignment=TA_CENTER)),
+    ]]
+    tr = Table(resumo_data, colWidths=[42*mm]*4)
+    tr.setStyle(TableStyle([
+        ("BACKGROUND",    (0,0), (-1,0), FUNDO_LINHA),
+        ("BACKGROUND",    (0,1), (-1,1), BRANCO),
+        ("BOX",           (0,0), (-1,-1), 0.5, BORDA),
+        ("GRID",          (0,0), (-1,-1), 0.3, BORDA),
+        ("ALIGN",         (0,0), (-1,-1), "CENTER"),
+        ("VALIGN",        (0,0), (-1,-1), "MIDDLE"),
+        ("TOPPADDING",    (0,0), (-1,-1), 6),
+        ("BOTTOMPADDING", (0,0), (-1,-1), 6),
+        ("LINEABOVE",     (0,1), (0,1), 3, CRITICO),
+        ("LINEABOVE",     (1,1), (1,1), 3, ALTO),
+        ("LINEABOVE",     (2,1), (2,1), 3, MEDIO),
+        ("LINEABOVE",     (3,1), (3,1), 3, BAIXO),
+    ]))
+    story.append(tr)
+    story.append(Spacer(1, 10))
+
+    for titulo_categoria, texto in secoes_com_achados.items():
+        story.append(Paragraph(titulo_categoria, estilos["h3"]))
+        _render_itens_por_nivel(story, texto)
 
 
 def _secao_relatorio(story, relatorio: str, estilos):
@@ -519,6 +560,57 @@ def _rodape(canvas_obj, doc):
     canvas_obj.restoreState()
 
 
+def _extrair_blocos(analise_completa: str) -> dict:
+    """
+    Extrai cada bloco (SAST_DAST, SCA, CSPM, IAC, SECRETS, DLP, FP, RELATORIO)
+    de forma independente, buscando cada marcador diretamente no texto
+    completo — ao invés de encadear splits sequenciais, o que fazia blocos
+    faltantes "vazarem" conteúdo de uma categoria para outra.
+
+    Suporta tanto o formato atual (com todos os 8 marcadores) quanto o
+    formato legado (---VULNS--- único, sem separação por categoria).
+    """
+    marcadores_em_ordem = [
+        "---VULNS_SAST_DAST---", "---VULNS_SCA---", "---VULNS_CSPM---",
+        "---VULNS_IAC---", "---VULNS_SECRETS---", "---VULNS_DLP---",
+        "---VULNS_FP---", "---RELATORIO---",
+    ]
+
+    blocos = {
+        "sast_dast": "", "sca": "", "cspm": "", "iac": "",
+        "secrets": "", "dlp": "", "fp": "", "relatorio": "",
+    }
+    chaves_em_ordem = ["sast_dast", "sca", "cspm", "iac", "secrets", "dlp", "fp", "relatorio"]
+
+    if "---VULNS_SAST_DAST---" in analise_completa:
+        for i, marcador in enumerate(marcadores_em_ordem):
+            if marcador not in analise_completa:
+                continue
+            inicio = analise_completa.split(marcador, 1)[1]
+            fim_encontrado = None
+            for prox_marcador in marcadores_em_ordem[i+1:]:
+                if prox_marcador in inicio:
+                    fim_encontrado = inicio.split(prox_marcador, 1)[0]
+                    break
+            blocos[chaves_em_ordem[i]] = (fim_encontrado if fim_encontrado is not None else inicio).strip()
+        return blocos
+
+    if "---VULNS---" in analise_completa:
+        bloco = analise_completa.split("---VULNS---")[1].split("---RELATORIO---")[0].strip()
+        if "### Trivy" in bloco:
+            p = bloco.split("### Trivy", 1)
+            blocos["sast_dast"], blocos["sca"] = p[0].strip(), "### Trivy\n\n" + p[1].strip()
+        else:
+            blocos["sast_dast"] = bloco
+    else:
+        blocos["sast_dast"] = analise_completa
+
+    if "---RELATORIO---" in analise_completa:
+        blocos["relatorio"] = analise_completa.split("---RELATORIO---")[1].strip()
+
+    return blocos
+
+
 def gerar_pdf_relatorio(ativo: dict, analise_completa: str, nome_usuario: str = "Analista ASPM") -> bytes:
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4,
@@ -528,33 +620,31 @@ def gerar_pdf_relatorio(ativo: dict, analise_completa: str, nome_usuario: str = 
     estilos = _estilos()
     story   = []
 
-    sast_dast = sca = relatorio = ""
-    if "---VULNS_SAST_DAST---" in analise_completa:
-        sast_dast = analise_completa.split("---VULNS_SAST_DAST---")[1].split("---VULNS_SCA---")[0].strip()
-        sca       = analise_completa.split("---VULNS_SCA---")[1].split("---RELATORIO---")[0].strip()
-    elif "---VULNS---" in analise_completa:
-        bloco = analise_completa.split("---VULNS---")[1].split("---RELATORIO---")[0].strip()
-        if "### Trivy" in bloco:
-            p = bloco.split("### Trivy", 1)
-            sast_dast, sca = p[0].strip(), "### Trivy\n\n" + p[1].strip()
-        else:
-            sast_dast = bloco
-    else:
-        sast_dast = analise_completa
+    blocos = _extrair_blocos(analise_completa)
 
-    if "---RELATORIO---" in analise_completa:
-        relatorio = analise_completa.split("---RELATORIO---")[1].strip()
+    secoes_vulnerabilidades = {
+        "2.1 SAST / DAST (Código-Fonte e Dinâmica)": blocos["sast_dast"],
+        "2.2 SCA (Dependências de Software)": blocos["sca"],
+        "2.3 CSPM (Postura de Nuvem)": blocos["cspm"],
+        "2.4 IaC (Infraestrutura como Código)": blocos["iac"],
+        "2.5 Secrets (Credenciais Expostas)": blocos["secrets"],
+        "2.6 DLP (Dados Sensíveis de Terceiros)": blocos["dlp"],
+    }
+
+    texto_combinado_para_capa = "\n".join(
+        texto for texto in secoes_vulnerabilidades.values() if texto
+    )
 
     compliance = avaliar_plataforma(ativo.get("usuario_id"))
 
-    _bloco_capa(story, ativo, nome_usuario, estilos, sast_dast + "\n" + sca)
+    _bloco_capa(story, ativo, nome_usuario, estilos, texto_combinado_para_capa)
 
     story.append(PageBreak())
-    _secao_vulnerabilidades(story, sast_dast + "\n" + sca, estilos)
+    _secao_vulnerabilidades(story, secoes_vulnerabilidades, estilos)
 
-    if relatorio:
+    if blocos["relatorio"]:
         story.append(PageBreak())
-        _secao_relatorio(story, relatorio, estilos)
+        _secao_relatorio(story, blocos["relatorio"], estilos)
 
     _secao_declaracao(story, nome_usuario, estilos, compliance)
 

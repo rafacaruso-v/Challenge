@@ -1,28 +1,3 @@
-"""
-Scanner de DLP (Data Loss Prevention) — detecta dados sensíveis de
-pessoas físicas (PII) potencialmente vazados em código-fonte, configs,
-fixtures de teste, etc.
-
-Princípios de mercado seguidos aqui (mesma lógica de ferramentas como
-AWS Macie, Google DLP API, Microsoft Purview):
-
-1. VALIDAÇÃO MATEMÁTICA, NÃO SÓ REGEX — um regex que casa "11 dígitos"
-   pega qualquer número de telefone, protocolo, ou ID de pedido. Só reporta
-   como achado real depois de validar o dígito verificador (CPF/CNPJ) ou o
-   algoritmo de Luhn (cartão de crédito) — isso é o que reduz falso positivo
-   de ~90% (regex ingênuo) para uma taxa realista de produção.
-
-2. MASCARAMENTO OBRIGATÓRIO — o dado sensível encontrado NUNCA aparece
-   completo em nenhum relatório, log, ou prompt de IA. Isso evitaria criar
-   um vazamento novo através da própria ferramenta que deveria proteger
-   contra vazamento.
-
-3. CONTEXTO REDUZ RUÍDO — valores dentro de arquivos de teste/fixture/mock
-   (ex: 'test_cpf.py', diretório 'tests/', 'fixtures/') são sinalizados com
-   confiança mais baixa, já que dado de teste sintético é comum e normalmente
-   não representa uma pessoa real.
-"""
-
 import os
 import re
 
@@ -140,21 +115,6 @@ def _listar_arquivos_texto(caminho_repositorio: str):
 
 
 def dlp_scan(caminho_repositorio: str):
-    """
-    Varre o repositório em busca de CPF, CNPJ, cartão de crédito e e-mail,
-    aplicando validação matemática real antes de reportar qualquer achado.
-
-    Retorna uma lista de dicts:
-        {
-            "tipo": "CPF" | "CNPJ" | "Cartao_Credito" | "Email",
-            "arquivo": "caminho/relativo/arquivo.py",
-            "linha": 12,
-            "valor_mascarado": "123***.***-45",
-            "confianca": "alta" | "media",
-        }
-
-    Ou "ERRO: <mensagem>" (string) em caso de falha de leitura.
-    """
     if not os.path.isdir(caminho_repositorio):
         return f"ERRO: Caminho do repositório inválido: {caminho_repositorio}"
 

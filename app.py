@@ -13,7 +13,7 @@ from Scanners.owaspzap import rodar_zap
 from Scanners.semgrep import rodar_semgrep
 from Scanners.trivy import rodar_trivy
 from Scanners.gitleaks import rodar_gitleaks
-from Scanners.dlp import rodar_dlp_scan as rodar_dlp
+from Scanners.dlp import dlp_scan as rodar_dlp
 from CloudAws.cspm import run_cspm_scan
 from LLMs.gemini import (
     formatar_achados_cspm,
