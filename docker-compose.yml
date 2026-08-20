@@ -13,26 +13,27 @@ services:
     expose:
       - "8501"
     environment:
-      - GEMINI_KEY_1=${GEMINI_KEY_1}
-      - GEMINI_KEY_2=${GEMINI_KEY_2}
-      - GEMINI_KEY_3=${GEMINI_KEY_3}
-      - GEMINI_KEY_4=${GEMINI_KEY_4}
+      - TZ=America/Sao_Paulo
+      - GEMINI_KEY_1
+      - GEMINI_KEY_2
+      - GEMINI_KEY_3
+      - GEMINI_KEY_4
       - ZAP_HOST=zap
-      - GMAIL_USER=${GMAIL_USER}
-      - GMAIL_APP_PASSWORD=${GMAIL_APP_PASSWORD}
-      - ADMIN_USERNAME=${ADMIN_USERNAME}
-      - ADMIN_EMAIL=${ADMIN_EMAIL}
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
-      - AWS_HUB_ACCESS_KEY_ID=${AWS_HUB_ACCESS_KEY}
-      - AWS_HUB_SECRET_KEY=${AWS_HUB_SECRET_KEY}
-      - AWS_TEST_REGION=${AWS_TEST_REGION}
-      - CREDENTIALS_ENCRYPTION_KEY=${CREDENTIALS_ENCRYPTION_KEY}
-      - AWS_HUB_ACCOUNT_ID=${AWS_HUB_ACCOUNT_ID}
-      - AWS_EXTERNAL_ID=${AWS_EXTERNAL_ID}
-      - GEMINI_KEY_NPL=${GEMINI_KEY_NPL}
-      - GEMINI_KEY_NPL_2=${GEMINI_KEY_NPL_2}
-      - GEMINI_KEY_NPL_3=${GEMINI_KEY_NPL_3}
-      - API_KEY=${API_KEY}
+      - GMAIL_USER
+      - GMAIL_APP_PASSWORD
+      - ADMIN_USERNAME
+      - ADMIN_EMAIL
+      - ADMIN_PASSWORD
+      - AWS_HUB_ACCESS_KEY
+      - AWS_HUB_SECRET_KEY
+      - AWS_TEST_REGION
+      - CREDENTIALS_ENCRYPTION_KEY
+      - AWS_HUB_ACCOUNT_ID
+      - AWS_EXTERNAL_ID
+      - GEMINI_KEY_NPL
+      - GEMINI_KEY_NPL_2
+      - GEMINI_KEY_NPL_3
+      - API_KEY
     depends_on:
       - zap
     volumes:
@@ -60,7 +61,7 @@ services:
       - "--url=zap-buffer-refurnish.ngrok-free.dev"
       - "webhook:8000"
     environment:
-      - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN}
+      - NGROK_AUTHTOKEN
     depends_on:
       - webhook
     networks:
