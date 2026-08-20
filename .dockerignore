@@ -1,14 +1,9 @@
 # Segredos e configs sensíveis - NUNCA devem ir pra imagem
 .env
-.env.*
-*.pem
-*.key
 
 # Banco de dados local (não deve ir pra imagem, é estado, não código)
 aspm.db
 *.db
-*.sqlite
-*.sqlite3
 
 # Git
 .git
@@ -17,35 +12,10 @@ aspm.db
 # Python
 __pycache__/
 *.pyc
-*.pyo
-*.pyd
-.Python
-.venv/
-venv/
-env/
-*.egg-info/
-
-# Cache de ferramentas
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
 
 # CI/CD e infra (não precisa dentro da imagem em execução)
 .github/
+!.github/scripts/
 docker-compose.yml
 Dockerfile
 .dockerignore
-
-# Editor/IDE
-.vscode/
-.idea/
-*.swp
-
-# Relatórios e artefatos gerados localmente
-*.sarif
-sbom.json
-zizmor-results.sarif
-
-# Sistema
-.DS_Store
-Thumbs.db
