@@ -50,16 +50,6 @@ def verificar_disponibilidade(usuario_id, ativo_nome, url):
 
 
 def verificar_anomalia(usuario_id, componente_id, identificador_exibicao, score_atual):
-    """
-    NOTA: 'componente_id' é passado no lugar de 'ativo_id' que a função
-    recebia antes. Isso é intencional — o histórico de score agora é
-    rastreado por componente (um ativo pode ter vários componentes, cada
-    um com sua própria série temporal de score). Se
-    MachineLearning/anomaly_detector.py consulta uma tabela/coluna
-    'ativo_id' internamente (ex: historico_ativos, que não existe mais),
-    esse arquivo também precisa ser adaptado para usar historico_componentes
-    e a função listar_historico_componente(usuario_id, componente_id).
-    """
     try:
         e_anomalia, detalhe, metodo = verificar_anomalia_ml(usuario_id, componente_id, identificador_exibicao, score_atual)
 
