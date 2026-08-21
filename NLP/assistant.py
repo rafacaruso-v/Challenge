@@ -38,12 +38,10 @@ def obter_nome_usuario(usuario_id) -> str:
     if not usuario:
         return "Usuário"
 
-    # buscar_usuario_por_id retorna: id, username, email, senha_hash, nome, role
     nome = usuario[4] or usuario[1]
     return nome or "Usuário"
 
 
-# Mantido por compatibilidade, caso algo mais no projeto já importe o nome antigo.
 _obter_nome_usuario = obter_nome_usuario
 
 
