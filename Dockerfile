@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y \
     wget \
     apt-transport-https \
     gnupg \
-    tz data \
+    tzdata \
     && rm -rf /var/lib/apt/lists/*
 
 ENV TZ=America/Sao_Paulo
