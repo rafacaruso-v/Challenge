@@ -11,7 +11,11 @@ RUN apt-get update && apt-get install -y \
     wget \
     apt-transport-https \
     gnupg \
+    tz data \
     && rm -rf /var/lib/apt/lists/*
+
+ENV TZ=America/Sao_Paulo
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 COPY requirements.txt .
 RUN python -m pip install --no-cache-dir --upgrade pip
