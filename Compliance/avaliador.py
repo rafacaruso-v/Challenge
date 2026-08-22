@@ -1,5 +1,5 @@
 from datetime import datetime
-from Database.db import listar_ativos_db, listar_logs, listar_usuarios
+from Database.db import listar_ativos_db, listar_logs, listar_usuarios, listar_componentes_usuario
 
 JANELA_RASTREABILIDADE_DIAS = 30
 
@@ -38,9 +38,46 @@ def avaliar_mitigacao_vulnerabilidades(usuario_id):
 
     if analisados == 0:
         return "Não Conforme", f"Nenhum dos {total} ativo(s) cadastrado(s) possui componente analisado."
-    if analisados == total:
-        return "Conforme", f"Todos os {total} ativo(s) cadastrado(s) possuem cobertura de scanner (SAST/DAST/SCA/CSPM/IaC)."
-    return "Parcialmente Conforme", f"{analisados} de {total} ativo(s) cadastrado(s) possuem ao menos um componente analisado."
+
+    componentes = listar_componentes_usuario(usuario_id)
+    repositorios_analisados = [
+        c for c in componentes
+        if c[3] == "Repositório" and c[8] not in (None, "Erro") and c[10]
+    ]
+
+    if repositorios_analisados:
+        repos_com_secrets_dlp = sum(
+            1 for c in repositorios_analisados
+            if "---VULNS_SECRETS---" in c[10] and "---VULNS_DLP---" in c[10]
+        )
+        repos_legado = len(repositorios_analisados) - repos_com_secrets_dlp
+    else:
+        repos_com_secrets_dlp = 0
+        repos_legado = 0
+
+    if analisados < total:
+        detalhe = f"{analisados} de {total} ativo(s) cadastrado(s) possuem ao menos um componente analisado."
+        if repositorios_analisados:
+            detalhe += (
+                f" Dos {len(repositorios_analisados)} componente(s) de Repositório analisado(s), "
+                f"{repos_com_secrets_dlp} possuem cobertura de Secrets/DLP."
+            )
+        return "Parcialmente Conforme", detalhe
+
+    if repos_legado > 0:
+        return (
+            "Parcialmente Conforme",
+            f"Todos os {total} ativo(s) cadastrado(s) possuem componente analisado, cobrindo "
+            f"SAST/DAST/SCA/CSPM/IaC. Porém {repos_legado} de {len(repositorios_analisados)} "
+            f"componente(s) de Repositório foram analisados antes da cobertura de Secrets/DLP "
+            f"(Gitleaks/DLP Scanner) e precisam de nova análise para conformidade completa."
+        )
+
+    ferramentas_str = "SAST/DAST/SCA/CSPM/IaC"
+    if repositorios_analisados:
+        ferramentas_str += "/Secrets/DLP"
+
+    return "Conforme", f"Todos os {total} ativo(s) cadastrado(s) possuem cobertura de scanner ({ferramentas_str})."
 
 
 def avaliar_rastreabilidade(usuario_id):

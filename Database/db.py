@@ -247,7 +247,7 @@ def _criar_estrutura_ativos_v2(conexao):
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             ativo_id INTEGER NOT NULL,
             usuario_id INTEGER NOT NULL,
-            tipo TEXT NOT NULL CHECK (tipo IN ('Repositório', 'API', 'Aplicação', 'Conta Cloud (AWS)')),
+            tipo TEXT NOT NULL CHECK (tipo IN ('Repositório', 'API', 'Aplicação', 'Cloud')),
             ambiente TEXT NOT NULL,
             url TEXT,
             aws_role_arn TEXT,

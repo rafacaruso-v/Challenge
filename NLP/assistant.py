@@ -26,10 +26,6 @@ informação que não esteja neles.
 
 
 def obter_nome_usuario(usuario_id) -> str:
-    """Busca o nome de exibição do usuário logado para dar contexto ao prompt.
-    Cai para algo genérico se não encontrar (não deve travar a conversa).
-    Pública de propósito: também é reutilizada pela tela do chatbot para
-    montar a mensagem de boas-vindas sem precisar duplicar essa consulta."""
     try:
         usuario = buscar_usuario_por_id(usuario_id)
     except Exception:

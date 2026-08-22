@@ -361,7 +361,7 @@ def analisar_vulnerabilidades(
         return "Erro", 0, "Erro na análise da IA: Nenhuma chave de API encontrada. Verifique o arquivo .env (GEMINI_KEY_1, GEMINI_KEY_2, GEMINI_KEY_3, GEMINI_KEY_4)."
 
     e_runtime = tipo in ("API", "Aplicação")
-    e_cloud = tipo == "Conta Cloud (AWS)"
+    e_cloud = tipo == "Cloud"
 
     descartados_total = []
 

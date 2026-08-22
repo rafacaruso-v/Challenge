@@ -86,15 +86,6 @@ def _listar_todos_usuario_ids():
 
 
 def _rescan_componente(usuario_id, ativo_id, ativo_nome, componente):
-    """
-    Re-executa o scan apropriado para um único componente, de acordo com
-    seu tipo (Repositório / API / Aplicação / Conta Cloud (AWS)).
-
-    Tupla 'componente' vem de listar_componentes(), nesta ordem:
-    0 id, 1 ativo_id, 2 usuario_id, 3 tipo, 4 ambiente, 5 url,
-    6 aws_role_arn, 7 aws_region, 8 criticidade, 9 score, 10 analise,
-    11 ultima_analise, 12 criado_em
-    """
     from Scanners.owaspzap import rodar_zap
     from Scanners.semgrep import rodar_semgrep
     from Scanners.trivy import rodar_trivy
@@ -110,7 +101,7 @@ def _rescan_componente(usuario_id, ativo_id, ativo_nome, componente):
     print(f"Re-scan iniciado: {identificador_exibicao} (usuário {usuario_id})")
 
     try:
-        if tipo == "Conta Cloud (AWS)":
+        if tipo == "Cloud":
             if not aws_role_arn:
                 print(f"Componente cloud sem ARN configurado, pulando: {identificador_exibicao}")
                 return
@@ -119,7 +110,7 @@ def _rescan_componente(usuario_id, ativo_id, ativo_nome, componente):
             texto_cspm = formatar_achados_cspm(achados)
 
             crit, score_novo, analise_nova = analisar_vulnerabilidades(
-                tipo="Conta Cloud (AWS)",
+                tipo="Cloud",
                 url=aws_role_arn,
                 ambiente=ambiente,
                 resultado_sast="",
@@ -172,7 +163,7 @@ def _rescan_componente(usuario_id, ativo_id, ativo_nome, componente):
 
         registrar_historico_componente(usuario_id, comp_id, ativo_id, score_novo)
 
-        if tipo != "Conta Cloud (AWS)" and url and (url.startswith("http://") or url.startswith("https://")):
+        if tipo != "Cloud" and url and (url.startswith("http://") or url.startswith("https://")):
             verificar_disponibilidade(usuario_id, ativo_nome, url)
 
         salvar_alerta(
