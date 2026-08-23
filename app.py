@@ -13,7 +13,7 @@ from Scanners.owaspzap import rodar_zap
 from Scanners.semgrep import rodar_semgrep
 from Scanners.trivy import rodar_trivy
 from Scanners.gitleaks import rodar_gitleaks
-from Scanners.dlp import dlp_scan as rodar_dlp
+from Scanners.dlp import rodar_dlp_scan as rodar_dlp
 from CloudAws.cspm import run_cspm_scan
 from LLMs.gemini import (
     formatar_achados_cspm,
@@ -608,13 +608,104 @@ def exibir_alertas_banner():
                 st.rerun()
     st.markdown("---")
 
+def exibir_sugestoes_agrupamento_banner():
+    from Database.db import (
+        listar_sugestoes_pendentes, atualizar_status_sugestao,
+        mover_componente_para_ativo, criar_ativo,
+        buscar_componente, listar_componentes, deletar_ativo,
+    )
+
+    sugestoes = listar_sugestoes_pendentes(usuario_id)
+    if not sugestoes:
+        return
+
+    st.markdown(
+        "<p style='font-weight:700; font-size:16px; margin-bottom:8px;'>"
+        "🔗 Sugestões de Agrupamento (gerado por IA)</p>",
+        unsafe_allow_html=True
+    )
+    st.caption(
+        "A IA analisou seus componentes durante o último re-scan e identificou possíveis "
+        "relações. Nenhuma ação foi aplicada — revise e confirme abaixo."
+    )
+
+    cores_confianca = {"alta": "#00c853", "media": "#ffd700", "baixa": "#ff8c00"}
+
+    for sug in sugestoes:
+        cor = cores_confianca.get(sug["confianca"], "#a855f7")
+        nomes = ", ".join(sug["componentes_labels"])
+        alvo = sug["ativo_alvo_nome"] if sug["tipo"] == "vincular_existente" else sug["nome_sugerido"]
+
+        col_msg, col_botoes = st.columns([9, 1])
+        with col_msg:
+            st.markdown(f"""
+                <div style="background:rgba(124,58,237,0.15); border-left:4px solid {cor};
+                    padding:10px 16px; border-radius:8px; margin-bottom:6px; font-size:13px;">
+                    <b>{nomes}</b> → <b>{alvo}</b>
+                    <span style="background:{cor}22; color:{cor}; padding:2px 8px; border-radius:20px;
+                        font-size:10px; font-weight:700; margin-left:6px;">
+                        CONFIANÇA {sug['confianca'].upper()}
+                    </span>
+                    <br><span style="opacity:0.7; font-size:11px;">{sug['justificativa']}</span>
+                </div>
+            """, unsafe_allow_html=True)
+        with col_botoes:
+            col_aceitar, col_ignorar = st.columns([1, 1], gap="small")
+            with col_aceitar:
+                tooltip = f"Vincular a '{alvo}'" if sug["tipo"] == "vincular_existente" else "Criar novo Ativo"
+                if st.button("✓", key=f"aceitar_sug_{sug['id']}", help=tooltip):
+                    ativos_origem = set()
+                    for comp_id in sug["componentes_ids"]:
+                        comp = buscar_componente(usuario_id, comp_id)
+                        if comp:
+                            ativos_origem.add(comp[1])
+
+                    if sug["tipo"] == "vincular_existente":
+                        ativo_destino_id = sug["ativo_alvo_id"]
+                        for comp_id in sug["componentes_ids"]:
+                            mover_componente_para_ativo(usuario_id, comp_id, ativo_destino_id)
+                    else:
+                        ativo_destino_id = criar_ativo(usuario_id, sug["nome_sugerido"])
+                        for comp_id in sug["componentes_ids"]:
+                            mover_componente_para_ativo(usuario_id, comp_id, ativo_destino_id)
+
+                    ativos_removidos = []
+                    for ativo_id_origem in ativos_origem:
+                        if ativo_id_origem == ativo_destino_id:
+                            continue
+                        restantes = listar_componentes(usuario_id, ativo_id_origem)
+                        if not restantes:
+                            deletar_ativo(usuario_id, ativo_id_origem)
+                            ativos_removidos.append(ativo_id_origem)
+
+                    atualizar_status_sugestao(usuario_id, sug["id"], "aceita")
+
+                    detalhe_log = sug["justificativa"]
+                    if ativos_removidos:
+                        detalhe_log += f" | {len(ativos_removidos)} Ativo(s) vazio(s) removido(s) automaticamente."
+
+                    registrar_log(usuario_id, nome_usuario,
+                        acao="Agrupamento Aplicado (IA)",
+                        detalhe=detalhe_log,
+                        nivel="INFORMATIVO", aplicacao="*", ambiente="Todos", origem="Sugestão IA")
+                    st.success("✅ Agrupamento aplicado!" + (f" {len(ativos_removidos)} Ativo(s) vazio(s) removido(s)." if ativos_removidos else ""))
+                    st.rerun()
+            with col_ignorar:
+                if st.button("✕", key=f"ignorar_sug_{sug['id']}", help="Ignorar"):
+                    atualizar_status_sugestao(usuario_id, sug["id"], "ignorada")
+                    st.rerun()
+
+    st.markdown("---")
 
 def _executar_scanners_e_analisar(tipo, url, ambiente, aws_role_arn=None, aws_region=None):
 
     if tipo == "Cloud":
+        from MachineLearning.false_positive import reduzir_falsos_positivos_cspm
+
         achados, inventario = run_cspm_scan(aws_role_arn.strip(), aws_region.strip() or "us-east-2")
         st.session_state["_ultimo_inventario_cloud"] = inventario
-        texto_cspm = formatar_achados_cspm(achados)
+        achados_filtrados, descartados_cspm = reduzir_falsos_positivos_cspm(achados)
+        texto_cspm = formatar_achados_cspm(achados_filtrados)
         crit, score, analise = analisar_vulnerabilidades(
             tipo="Cloud",
             url=aws_role_arn.strip(),
@@ -623,16 +714,19 @@ def _executar_scanners_e_analisar(tipo, url, ambiente, aws_role_arn=None, aws_re
             resultado_dast="",
             resultado_sca="",
             resultado_cspm=texto_cspm,
+            descartados_externos=descartados_cspm,
         )
-        return crit, score, analise, len(achados)
+        return crit, score, analise, len(achados_filtrados)
 
     res_sast = res_dast = res_sca = ""
     res_iac = formatar_achados_iac([])
     res_secrets = formatar_achados_secrets([])
     res_dlp = formatar_achados_dlp([])
+    descartados_iac = None
 
     if tipo == "Repositório":
         from Scanners.repo_utils import preparar_repositorio, limpar_repositorio
+        from MachineLearning.false_positive import reduzir_falsos_positivos_iac
 
         try:
             caminho_local, deve_limpar = preparar_repositorio(url)
@@ -644,6 +738,7 @@ def _executar_scanners_e_analisar(tipo, url, ambiente, aws_role_arn=None, aws_re
             res_sast = rodar_semgrep(caminho_local)
             res_sca  = rodar_trivy(caminho_local)
             res_iac_bruto = rodar_checkov(caminho_local)
+            res_iac_bruto, descartados_iac = reduzir_falsos_positivos_iac(res_iac_bruto)
             res_iac = formatar_achados_iac(res_iac_bruto)
             res_secrets_bruto = rodar_gitleaks(caminho_local)
             res_secrets = formatar_achados_secrets(res_secrets_bruto)
@@ -683,7 +778,8 @@ def _executar_scanners_e_analisar(tipo, url, ambiente, aws_role_arn=None, aws_re
 
     crit, score, analise = analisar_vulnerabilidades(
         tipo, url, ambiente, res_sast, res_dast, res_sca,
-        resultado_iac=res_iac, resultado_secrets=res_secrets, resultado_dlp=res_dlp
+        resultado_iac=res_iac, resultado_secrets=res_secrets, resultado_dlp=res_dlp,
+        descartados_externos=descartados_iac,
     )
     return crit, score, analise, None
 
@@ -693,6 +789,7 @@ if selecionado == "Dashboard":
     st.markdown("<p style='font-size:18px; margin-bottom:40px; opacity:0.8;'>Application Security Posture Management</p>", unsafe_allow_html=True)
 
     exibir_alertas_banner()
+    exibir_sugestoes_agrupamento_banner()
     ativos = listar_ativos_db(usuario_id)
 
     if ativos:

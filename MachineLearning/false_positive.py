@@ -31,7 +31,7 @@ CAMINHOS_INDICAM_REAL = [
     "services", "controllers", "models", "routes",
 ]
 
-SCANNER_TIPOS = ["SAST", "DAST", "SCA"]
+SCANNER_TIPOS = ["SAST", "DAST", "SCA", "CSPM", "IAC"]
 
 def _entropia_shannon(texto: str) -> float:
     if not texto:
@@ -294,3 +294,70 @@ def reduzir_falsos_positivos_dast(resultado_dast_raw: str):
         for d in descartados
     ]
     return json.dumps(achados_filtrados, ensure_ascii=False), descartados_limpos
+
+def reduzir_falsos_positivos_cspm(achados: list):
+    """
+    Filtra achados de CSPM (lista bruta vinda de run_cspm_scan, ANTES de
+    formatar_achados_cspm) usando o mesmo modelo de ML dos outros scanners.
+    """
+    if not achados:
+        return achados, []
+
+    findings_normalizados = []
+    for item in achados:
+        recurso = item.get("recurso", "")
+        descricao = item.get("descricao", "")
+        texto = f"{recurso}: {descricao}"
+        findings_normalizados.append({
+            "texto": texto,
+            "caminho": recurso,
+            "tipo_scanner": "CSPM",
+            "_original": item,
+        })
+
+    mantidos, descartados = filtrar_falsos_positivos(findings_normalizados)
+
+    achados_filtrados = [f["_original"] for f in mantidos]
+    descartados_limpos = [
+        {
+            "texto": d["texto"],
+            "caminho": d["caminho"],
+            "tipo_scanner": d["tipo_scanner"],
+            "fp_probabilidade": d["fp_probabilidade"],
+        }
+        for d in descartados
+    ]
+    return achados_filtrados, descartados_limpos
+
+
+def reduzir_falsos_positivos_iac(achados: list):
+    if not achados:
+        return achados, []
+
+    findings_normalizados = []
+    for item in achados:
+        recurso = item.get("recurso", "")
+        descricao = item.get("descricao", "")
+        contexto = item.get("contexto_ia") or {}
+        caminho = contexto.get("file_path", recurso)
+        texto = f"{recurso}: {descricao}"
+        findings_normalizados.append({
+            "texto": texto,
+            "caminho": caminho,
+            "tipo_scanner": "IAC",
+            "_original": item,
+        })
+
+    mantidos, descartados = filtrar_falsos_positivos(findings_normalizados)
+
+    achados_filtrados = [f["_original"] for f in mantidos]
+    descartados_limpos = [
+        {
+            "texto": d["texto"],
+            "caminho": d["caminho"],
+            "tipo_scanner": d["tipo_scanner"],
+            "fp_probabilidade": d["fp_probabilidade"],
+        }
+        for d in descartados
+    ]
+    return achados_filtrados, descartados_limpos

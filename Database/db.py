@@ -3,6 +3,7 @@ import bcrypt
 import os
 import secrets
 from datetime import datetime
+import json
 
 def conectar():
     conexao = sqlite3.connect("aspm.db", check_same_thread=False)
@@ -22,6 +23,24 @@ def criar_tabela():
             senha_hash TEXT NOT NULL,
             nome TEXT,
             criado_em TEXT
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS sugestoes_agrupamento (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            usuario_id INTEGER NOT NULL,
+            tipo TEXT NOT NULL,
+            ativo_alvo_id INTEGER,
+            ativo_alvo_nome TEXT,
+            nome_sugerido TEXT,
+            componentes_ids TEXT NOT NULL,
+            componentes_labels TEXT NOT NULL,
+            confianca TEXT,
+            justificativa TEXT,
+            status TEXT DEFAULT 'pendente',
+            criado_em TEXT NOT NULL,
+            FOREIGN KEY (usuario_id) REFERENCES usuarios (id)
         )
     """)
 
@@ -893,4 +912,79 @@ def resolver_alerta(usuario_id, alerta_id):
     conexao = conectar()
     cursor = conexao.cursor()
     cursor.execute("UPDATE alertas SET resolvido = 1 WHERE id = ? AND usuario_id = ?", (alerta_id, usuario_id))
+    conexao.commit()
+
+def salvar_sugestao_agrupamento(
+    usuario_id, tipo, componentes_ids, componentes_labels, justificativa,
+    confianca=None, ativo_alvo_id=None, ativo_alvo_nome=None, nome_sugerido=None
+):
+    conexao = conectar()
+    cursor = conexao.cursor()
+
+    ids_ordenados = json.dumps(sorted(componentes_ids))
+    cursor.execute("""
+        SELECT id, componentes_ids FROM sugestoes_agrupamento
+        WHERE usuario_id = ? AND status = 'pendente'
+    """, (usuario_id,))
+    for row in cursor.fetchall():
+        if json.dumps(sorted(json.loads(row[1]))) == ids_ordenados:
+            return None  # já existe sugestão pendente igual
+
+    cursor.execute("""
+        INSERT INTO sugestoes_agrupamento (
+            usuario_id, tipo, ativo_alvo_id, ativo_alvo_nome, nome_sugerido,
+            componentes_ids, componentes_labels, confianca, justificativa,
+            status, criado_em
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pendente', ?)
+    """, (
+        usuario_id, tipo, ativo_alvo_id, ativo_alvo_nome, nome_sugerido,
+        json.dumps(componentes_ids), json.dumps(componentes_labels),
+        confianca, justificativa,
+        datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
+    ))
+    conexao.commit()
+    return cursor.lastrowid
+
+
+def listar_sugestoes_pendentes(usuario_id):
+    conexao = conectar()
+    cursor = conexao.cursor()
+    cursor.execute("""
+        SELECT id, tipo, ativo_alvo_id, ativo_alvo_nome, nome_sugerido,
+               componentes_ids, componentes_labels, confianca, justificativa, criado_em
+        FROM sugestoes_agrupamento
+        WHERE usuario_id = ? AND status = 'pendente'
+        ORDER BY id DESC
+    """, (usuario_id,))
+    linhas = cursor.fetchall()
+    return [
+        {
+            "id": r[0], "tipo": r[1], "ativo_alvo_id": r[2], "ativo_alvo_nome": r[3],
+            "nome_sugerido": r[4], "componentes_ids": json.loads(r[5]),
+            "componentes_labels": json.loads(r[6]), "confianca": r[7],
+            "justificativa": r[8], "criado_em": r[9],
+        }
+        for r in linhas
+    ]
+
+
+def atualizar_status_sugestao(usuario_id, sugestao_id, novo_status):
+    if novo_status not in ("aceita", "ignorada"):
+        raise ValueError("status inválido")
+    conexao = conectar()
+    cursor = conexao.cursor()
+    cursor.execute("""
+        UPDATE sugestoes_agrupamento SET status = ?
+        WHERE id = ? AND usuario_id = ?
+    """, (novo_status, sugestao_id, usuario_id))
+    conexao.commit()
+
+
+def mover_componente_para_ativo(usuario_id, componente_id, novo_ativo_id):
+    conexao = conectar()
+    cursor = conexao.cursor()
+    cursor.execute("""
+        UPDATE ativo_componentes SET ativo_id = ?
+        WHERE id = ? AND usuario_id = ?
+    """, (novo_ativo_id, componente_id, usuario_id))
     conexao.commit()

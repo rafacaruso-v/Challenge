@@ -92,6 +92,7 @@ def _rescan_componente(usuario_id, ativo_id, ativo_nome, componente):
     from Scanners.checkov import rodar_checkov
     from CloudAws.cspm import run_cspm_scan
     from LLMs.gemini import analisar_vulnerabilidades, formatar_achados_cspm, formatar_achados_iac
+    from MachineLearning.false_positive import reduzir_falsos_positivos_cspm, reduzir_falsos_positivos_iac
 
     (comp_id, _ativo_id, comp_usuario_id, tipo, ambiente, url,
      aws_role_arn, aws_region, _criticidade_anterior, _score_anterior,
@@ -104,10 +105,11 @@ def _rescan_componente(usuario_id, ativo_id, ativo_nome, componente):
         if tipo == "Cloud":
             if not aws_role_arn:
                 print(f"Componente cloud sem ARN configurado, pulando: {identificador_exibicao}")
-                return
+                return None
 
-            achados = run_cspm_scan(aws_role_arn, aws_region or "us-east-1")
-            texto_cspm = formatar_achados_cspm(achados)
+            achados, _inventario = run_cspm_scan(aws_role_arn, aws_region or "us-east-2")
+            achados_filtrados, descartados_cspm = reduzir_falsos_positivos_cspm(achados)
+            texto_cspm = formatar_achados_cspm(achados_filtrados)
 
             crit, score_novo, analise_nova = analisar_vulnerabilidades(
                 tipo="Cloud",
@@ -117,6 +119,7 @@ def _rescan_componente(usuario_id, ativo_id, ativo_nome, componente):
                 resultado_dast="",
                 resultado_sca="",
                 resultado_cspm=texto_cspm,
+                descartados_externos=descartados_cspm,
             )
 
         else:
@@ -124,6 +127,7 @@ def _rescan_componente(usuario_id, ativo_id, ativo_nome, componente):
 
             res_sast = res_sca = ""
             res_iac = formatar_achados_iac([])
+            descartados_iac = None
             res_dast = rodar_zap(url, tipo=tipo) if tipo in ["API", "Aplicação"] else ""
 
             if tipo == "Repositório":
@@ -131,11 +135,12 @@ def _rescan_componente(usuario_id, ativo_id, ativo_nome, componente):
                     caminho_local, deve_limpar = preparar_repositorio(url)
                 except RuntimeError as e:
                     print(f"Erro ao clonar repositório para re-scan de {identificador_exibicao}: {e}")
-                    return
+                    return None
                 try:
                     res_sast = rodar_semgrep(caminho_local)
                     res_sca  = rodar_trivy(caminho_local)
                     res_iac_bruto = rodar_checkov(caminho_local)
+                    res_iac_bruto, descartados_iac = reduzir_falsos_positivos_iac(res_iac_bruto)
                     res_iac = formatar_achados_iac(res_iac_bruto)
                 finally:
                     if deve_limpar:
@@ -150,12 +155,13 @@ def _rescan_componente(usuario_id, ativo_id, ativo_nome, componente):
                 res_dast = ""
 
             crit, score_novo, analise_nova = analisar_vulnerabilidades(
-                tipo, url, ambiente, res_sast, res_dast, res_sca, resultado_iac=res_iac
+                tipo, url, ambiente, res_sast, res_dast, res_sca,
+                resultado_iac=res_iac, descartados_externos=descartados_iac,
             )
 
         if crit == "Erro":
             print(f"Análise falhou para {identificador_exibicao}, mantendo dados anteriores.")
-            return
+            return None
 
         atualizar_componente(comp_usuario_id, comp_id, crit, score_novo, analise_nova)
 
@@ -166,17 +172,13 @@ def _rescan_componente(usuario_id, ativo_id, ativo_nome, componente):
         if tipo != "Cloud" and url and (url.startswith("http://") or url.startswith("https://")):
             verificar_disponibilidade(usuario_id, ativo_nome, url)
 
-        salvar_alerta(
-            usuario_id=usuario_id,
-            ativo_nome=ativo_nome,
-            tipo="rescan",
-            mensagem=f"✅ Re-scan automático concluído para '{identificador_exibicao}' — Score: {score_novo} ({crit}) às {datetime.now().strftime('%d/%m/%Y %H:%M')}"
-        )
-
         print(f"Re-scan concluído: {identificador_exibicao} — Score: {score_novo}")
+
+        return {"identificador": identificador_exibicao, "score": score_novo, "criticidade": crit}
 
     except Exception as e:
         print(f"Erro no re-scan de {identificador_exibicao} (usuário {usuario_id}): {e}")
+        return None
 
 
 def _rescan_usuario(usuario_id):
@@ -184,6 +186,8 @@ def _rescan_usuario(usuario_id):
 
     if not ativos:
         return
+
+    resultados = []
 
     for ativo in ativos:
         ativo_id   = ativo[0]
@@ -194,7 +198,34 @@ def _rescan_usuario(usuario_id):
             continue
 
         for componente in componentes:
-            _rescan_componente(usuario_id, ativo_id, ativo_nome, componente)
+            resultado = _rescan_componente(usuario_id, ativo_id, ativo_nome, componente)
+            if resultado:
+                resultados.append(resultado)
+
+    if resultados:
+        contagem_por_criticidade = {}
+        for r in resultados:
+            contagem_por_criticidade[r["criticidade"]] = contagem_por_criticidade.get(r["criticidade"], 0) + 1
+
+        resumo_criticidade = ", ".join(
+            f"{qtd} {crit}" for crit, qtd in contagem_por_criticidade.items()
+        )
+
+        salvar_alerta(
+            usuario_id=usuario_id,
+            ativo_nome="*",
+            tipo="rescan",
+            mensagem=(
+                f"✅ Re-scan automático concluído: {len(resultados)} componente(s) atualizado(s) "
+                f"({resumo_criticidade}) às {datetime.now().strftime('%d/%m/%Y %H:%M')}"
+            )
+        )
+
+    try:
+        from LLMs.sugestoes import gerar_sugestoes_ia
+        gerar_sugestoes_ia(usuario_id)
+    except Exception as e:
+        print(f"[AVISO] Falha ao gerar sugestões de agrupamento para usuário {usuario_id}: {e}")
 
 
 def rescan_automatico(usuario_id=None):

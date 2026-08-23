@@ -2,18 +2,22 @@ import subprocess
 import json
 import os
 import shutil
+import tempfile
 
 
 def _gitleaks_instalado() -> bool:
     return shutil.which("gitleaks") is not None
 
 def rodar_gitleaks(caminho_repositorio: str):
-    
+
     if not _gitleaks_instalado():
         return "ERRO: Gitleaks não está instalado no ambiente (binário 'gitleaks' não encontrado no PATH)."
 
-    if not os.path.isdir(caminho_repositorio):
+    if not os.path.exists(caminho_repositorio):
         return f"ERRO: Caminho do repositório inválido: {caminho_repositorio}"
+
+    with tempfile.NamedTemporaryFile(mode="r", suffix=".json", delete=False) as tmp:
+        caminho_relatorio = tmp.name
 
     try:
         resultado = subprocess.run(
@@ -22,7 +26,7 @@ def rodar_gitleaks(caminho_repositorio: str):
                 "--source", caminho_repositorio,
                 "--no-git",
                 "--report-format", "json",
-                "--report-path", "/dev/stdout",
+                "--report-path", caminho_relatorio,
                 "--exit-code", "0",
             ],
             capture_output=True,
@@ -30,11 +34,21 @@ def rodar_gitleaks(caminho_repositorio: str):
             timeout=300,
         )
     except subprocess.TimeoutExpired:
+        os.unlink(caminho_relatorio)
         return "ERRO: Gitleaks excedeu o tempo limite de execução (300s)."
     except Exception as e:
+        os.unlink(caminho_relatorio)
         return f"ERRO: Falha ao executar o Gitleaks: {e}"
 
-    saida = resultado.stdout.strip()
+    try:
+        with open(caminho_relatorio, "r", encoding="utf-8") as f:
+            saida = f.read().strip()
+    except FileNotFoundError:
+        saida = ""
+    finally:
+        if os.path.exists(caminho_relatorio):
+            os.unlink(caminho_relatorio)
+
     if not saida:
         return []
 
@@ -58,13 +72,6 @@ def rodar_gitleaks(caminho_repositorio: str):
 
 
 def _mascarar_segredo(segredo: str) -> str:
-    """
-    NUNCA expõe a credencial completa em relatórios, logs, ou no prompt
-    enviado para a IA — isso seria vazar o segredo de novo, só que através
-    da própria ferramenta de segurança. Mostra só os primeiros/últimos
-    caracteres, como qualquer ferramenta de mercado (GitGuardian, GitHub
-    Secret Scanning, etc.) faz.
-    """
     if not segredo:
         return "***"
     if len(segredo) <= 8:

@@ -1,3 +1,28 @@
+"""
+Scanner de DLP (Data Loss Prevention) — detecta dados sensíveis de
+pessoas físicas (PII) potencialmente vazados em código-fonte, configs,
+fixtures de teste, etc.
+
+Princípios de mercado seguidos aqui (mesma lógica de ferramentas como
+AWS Macie, Google DLP API, Microsoft Purview):
+
+1. VALIDAÇÃO MATEMÁTICA, NÃO SÓ REGEX — um regex que casa "11 dígitos"
+   pega qualquer número de telefone, protocolo, ou ID de pedido. Só reporta
+   como achado real depois de validar o dígito verificador (CPF/CNPJ) ou o
+   algoritmo de Luhn (cartão de crédito) — isso é o que reduz falso positivo
+   de ~90% (regex ingênuo) para uma taxa realista de produção.
+
+2. MASCARAMENTO OBRIGATÓRIO — o dado sensível encontrado NUNCA aparece
+   completo em nenhum relatório, log, ou prompt de IA. Isso evitaria criar
+   um vazamento novo através da própria ferramenta que deveria proteger
+   contra vazamento.
+
+3. CONTEXTO REDUZ RUÍDO — valores dentro de arquivos de teste/fixture/mock
+   (ex: 'test_cpf.py', diretório 'tests/', 'fixtures/') são sinalizados com
+   confiança mais baixa, já que dado de teste sintético é comum e normalmente
+   não representa uma pessoa real.
+"""
+
 import os
 import re
 
@@ -98,8 +123,25 @@ def _e_arquivo_de_teste(caminho: str) -> bool:
     return bool(PADROES_ARQUIVOS_TESTE.search(caminho))
 
 
-def _listar_arquivos_texto(caminho_repositorio: str):
-    for raiz, dirs, arquivos in os.walk(caminho_repositorio):
+def _listar_arquivos_texto(caminho_alvo: str):
+    """
+    Aceita tanto um diretório (repositório clonado) quanto um arquivo único
+    (ex: análise de um único .py local), já que a plataforma permite os
+    dois casos de uso para o tipo 'Repositório'.
+    """
+    if os.path.isfile(caminho_alvo):
+        _, ext = os.path.splitext(caminho_alvo)
+        if ext.lower() in EXTENSOES_IGNORADAS:
+            return
+        try:
+            if os.path.getsize(caminho_alvo) > TAMANHO_MAXIMO_ARQUIVO_BYTES:
+                return
+        except OSError:
+            return
+        yield caminho_alvo
+        return
+
+    for raiz, dirs, arquivos in os.walk(caminho_alvo):
         dirs[:] = [d for d in dirs if d not in (".git", "node_modules", "__pycache__", "venv", ".venv")]
         for nome in arquivos:
             _, ext = os.path.splitext(nome)
@@ -114,14 +156,34 @@ def _listar_arquivos_texto(caminho_repositorio: str):
             yield caminho_completo
 
 
-def dlp_scan(caminho_repositorio: str):
-    if not os.path.isdir(caminho_repositorio):
+def rodar_dlp_scan(caminho_repositorio: str):
+    """
+    Varre o repositório (ou um único arquivo) em busca de CPF, CNPJ, cartão
+    de crédito e e-mail, aplicando validação matemática real antes de
+    reportar qualquer achado.
+
+    Retorna uma lista de dicts:
+        {
+            "tipo": "CPF" | "CNPJ" | "Cartao_Credito" | "Email",
+            "arquivo": "caminho/relativo/arquivo.py",
+            "linha": 12,
+            "valor_mascarado": "123***.***-45",
+            "confianca": "alta" | "media",
+        }
+
+    Ou "ERRO: <mensagem>" (string) em caso de falha de leitura.
+    """
+    if not os.path.exists(caminho_repositorio):
         return f"ERRO: Caminho do repositório inválido: {caminho_repositorio}"
+
+    base_relpath = caminho_repositorio if os.path.isdir(caminho_repositorio) else (
+        os.path.dirname(caminho_repositorio) or "."
+    )
 
     achados = []
 
     for caminho_arquivo in _listar_arquivos_texto(caminho_repositorio):
-        caminho_relativo = os.path.relpath(caminho_arquivo, caminho_repositorio)
+        caminho_relativo = os.path.relpath(caminho_arquivo, base_relpath)
         e_teste = _e_arquivo_de_teste(caminho_relativo)
 
         try:

@@ -354,7 +354,8 @@ def verificar_omissao_iac(iac_final: str, dados_json: dict) -> tuple:
 
 def analisar_vulnerabilidades(
     tipo, url, ambiente, resultado_sast, resultado_dast, resultado_sca="",
-    resultado_cspm="", resultado_iac="", resultado_secrets="", resultado_dlp=""
+    resultado_cspm="", resultado_iac="", resultado_secrets="", resultado_dlp="",
+    descartados_externos=None
 ):
 
     if not CHAVES_API:
@@ -364,6 +365,8 @@ def analisar_vulnerabilidades(
     e_cloud = tipo == "Cloud"
 
     descartados_total = []
+
+    descartados_total = list(descartados_externos) if descartados_externos else []
 
     if e_cloud:
         sast_final = "IGNORADO (O ativo é uma Conta Cloud, análise de código não aplicável)"
