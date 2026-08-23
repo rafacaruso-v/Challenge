@@ -32,14 +32,14 @@ def _mensagem_de_boas_vindas(usuario_id) -> str:
     """Mensagem inicial estática (sem custo de chamada à API) exibida quando
     o usuário abre o chat pela primeira vez na sessão."""
     nome_usuario = obter_nome_usuario(usuario_id)
-    return f"""Olá, {nome_usuario}! 👋 Eu sou o assistente de IA da **ASPM Platform**.
+    return f"""Olá, {nome_usuario}! Eu sou o assistente de IA da **ASPM Platform**.
 
 Posso te ajudar a entender a postura de segurança dos seus ativos, direto por aqui, em linguagem natural. Alguns exemplos do que você pode me perguntar:
 
-- 🛡️ **Ativos e vulnerabilidades** — "Quais ativos estão com criticidade Alta?", "Qual o score do meu repositório X?"
-- 🔔 **Alertas e anomalias** — "Tem algum ativo offline?", "Quais alertas têm maior prioridade?"
-- 🌐 **Threat Intelligence** — "Quais CVEs críticas saíram essa semana?"
-- 📊 **Relatórios executivos** — "Me dá um resumo geral da minha postura de segurança"
+- **Ativos e vulnerabilidades** — "Quais ativos estão com criticidade Alta?", "Qual o score do meu repositório X?"
+- **Alertas e anomalias** — "Tem algum ativo offline?", "Quais alertas têm maior prioridade?"
+- **Threat Intelligence** — "Quais CVEs críticas saíram essa semana?"
+- **Relatórios executivos** — "Me dá um resumo geral da minha postura de segurança"
 
 Você também pode anexar imagens, PDFs ou arquivos de texto usando o botão de anexo. Como posso te ajudar hoje?"""
 
