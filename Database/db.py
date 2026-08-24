@@ -1003,10 +1003,6 @@ def mover_componente_para_ativo(usuario_id, componente_id, novo_ativo_id):
     conexao.commit()
 
 
-# NOVO: funções de acesso ao upload de repositório salvo como BLOB no banco.
-# Substituem a persistência em disco (pasta "Uploads/") usada anteriormente
-# em Scanners/repo_utils.py.
-
 def salvar_upload_db(componente_id: int, nome_arquivo: str, conteudo_bytes: bytes):
     conexao = conectar()
     cursor = conexao.cursor()

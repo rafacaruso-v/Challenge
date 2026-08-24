@@ -64,11 +64,6 @@ def salvar_upload_permanente(usuario_id: int, componente_id: int, conteudo_bytes
 
 
 def preparar_repositorio_upload(caminho_salvo: str):
-    """
-    Prepara um caminho local de trabalho a partir de um upload já persistido
-    em disco (ver salvar_upload_permanente). Extrai .zip; arquivo único é
-    apenas copiado para a pasta temporária de trabalho.
-    """
     if not os.path.exists(caminho_salvo):
         raise RuntimeError(f"Arquivo do componente não encontrado: {caminho_salvo}")
 

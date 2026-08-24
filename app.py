@@ -42,6 +42,7 @@ from Database.db import (
     registrar_log,
     listar_logs,
     listar_usuarios,
+    buscar_upload_db,
     atualizar_role_usuario,
     contar_admins,
     listar_logs_todos,
@@ -1152,6 +1153,10 @@ elif selecionado == "Ativos":
                         st.write(f"**{comp_tipo}** · {comp_ambiente} · Score: {comp_score} · {comp_criticid}")
                         if comp_tipo == "Cloud":
                             st.caption(f"Role ARN: {comp_arn}")
+                        elif comp_url and comp_url.startswith("db://uploads_componentes/"):
+                            upload = buscar_upload_db(comp_id)
+                            nome_exibido = upload[0] if upload else "Arquivo enviado (upload)"
+                            st.caption(f"Arquivo enviado: {nome_exibido}")
                         else:
                             st.caption(f"URL: {comp_url}")
                         st.markdown("<hr style='opacity:0.06; margin:6px 0;'>", unsafe_allow_html=True)
