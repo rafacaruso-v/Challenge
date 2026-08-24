@@ -1002,7 +1002,7 @@ elif selecionado == "Análises":
 
     ambiente = st.selectbox("Ambiente", ["Produção", "Homologação", "Desenvolvimento"], filter_mode=None)
 
-    if st.button("🔍 Iniciar Análise"):
+    if st.button("Iniciar Análise"):
         if tipo == "Cloud" and (not aws_role_arn or not aws_role_arn.strip()):
             st.error("❌ Informe o ARN da Role.")
         elif tipo == "Repositório" and not url and arquivo_upload is None:
@@ -1417,7 +1417,7 @@ elif selecionado == "Configurações":
         st.warning("⚠️ Nenhum ativo cadastrado para re-escanear.")
     else:
         st.info(f"📋 {len(ativos)} ativo(s) serão re-escaneados.")
-        if st.button("🔍 Re-escanear todos os ativos agora"):
+        if st.button("Re-escanear todos os ativos agora"):
             with st.spinner("Re-escaneando todos os ativos..."):
                 try:
                     from Monitoring.monitor import rescan_automatico
@@ -1450,7 +1450,7 @@ elif selecionado == "Configurações":
         novo_label  = st.selectbox("Intervalo de re-scan:", options=list(opcoes.keys()),
                                     index=list(opcoes.keys()).index(label_atual), filter_mode=None)
 
-        if st.button("💾 Salvar agendamento"):
+        if st.button("Salvar agendamento"):
             novo_intervalo = opcoes[novo_label]
             set_intervalo_rescan(novo_intervalo)
             reiniciar_scheduler(novo_intervalo)
