@@ -5,7 +5,7 @@ import subprocess
 import tempfile
 import zipfile
 
-PASTA_UPLOADS_PERSISTENTE = "Uploads"
+PREFIXO_URL_DB = "db://uploads_componentes/"
 
 
 def _forcar_remocao(func, caminho, exc_info):
@@ -57,29 +57,48 @@ def preparar_repositorio(url: str):
     return caminho_local, True
 
 
-def salvar_upload_permanente(usuario_id: int, componente_id: int, conteudo_bytes: bytes, nome_arquivo: str) -> str:
-    from Database.db import salvar_upload_db
-    salvar_upload_db(componente_id, nome_arquivo, conteudo_bytes)
-    return f"db://uploads_componentes/{componente_id}"
-
-
-def preparar_repositorio_upload(caminho_salvo: str):
-    if not os.path.exists(caminho_salvo):
-        raise RuntimeError(f"Arquivo do componente não encontrado: {caminho_salvo}")
-
+def preparar_pasta_de_bytes(conteudo_bytes: bytes, nome_arquivo: str):
     pasta_trabalho = tempfile.mkdtemp(prefix="aspm_scan_upload_")
-
     try:
-        if caminho_salvo.lower().endswith(".zip"):
-            _extrair_para_pasta(caminho_salvo, pasta_trabalho)
+        if nome_arquivo.lower().endswith(".zip"):
+            caminho_zip_temp = os.path.join(pasta_trabalho, "_upload.zip")
+            with open(caminho_zip_temp, "wb") as f:
+                f.write(conteudo_bytes)
+            _extrair_para_pasta(caminho_zip_temp, pasta_trabalho)
+            os.remove(caminho_zip_temp)
         else:
-            nome_arquivo = os.path.basename(caminho_salvo)
-            shutil.copy2(caminho_salvo, os.path.join(pasta_trabalho, nome_arquivo))
+            with open(os.path.join(pasta_trabalho, nome_arquivo), "wb") as f:
+                f.write(conteudo_bytes)
     except zipfile.BadZipFile:
         limpar_repositorio(pasta_trabalho)
         raise RuntimeError("Arquivo enviado não é um .zip válido.")
 
     return pasta_trabalho, True
+
+
+def salvar_upload_permanente(usuario_id: int, componente_id: int, conteudo_bytes: bytes, nome_arquivo: str) -> str:
+    from Database.db import salvar_upload_db
+    salvar_upload_db(componente_id, nome_arquivo, conteudo_bytes)
+    return f"{PREFIXO_URL_DB}{componente_id}"
+
+
+def preparar_repositorio_upload(url_db: str):
+    from Database.db import buscar_upload_db
+
+    if not url_db.startswith(PREFIXO_URL_DB):
+        raise RuntimeError(f"URL de upload inválida: {url_db}")
+
+    try:
+        componente_id = int(url_db[len(PREFIXO_URL_DB):])
+    except ValueError:
+        raise RuntimeError(f"URL de upload inválida: {url_db}")
+
+    registro = buscar_upload_db(componente_id)
+    if registro is None:
+        raise RuntimeError(f"Nenhum upload encontrado para o componente {componente_id}.")
+
+    nome_arquivo, conteudo_bytes = registro
+    return preparar_pasta_de_bytes(conteudo_bytes, nome_arquivo)
 
 
 def limpar_repositorio(caminho_local: str):

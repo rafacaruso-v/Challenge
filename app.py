@@ -727,20 +727,15 @@ def _executar_scanners_e_analisar(tipo, url, ambiente, aws_role_arn=None, aws_re
     descartados_iac = None
 
     if tipo == "Repositório":
-        from Scanners.repo_utils import preparar_repositorio, preparar_repositorio_upload, limpar_repositorio
+        from Scanners.repo_utils import preparar_repositorio, limpar_repositorio
         from MachineLearning.false_positive import reduzir_falsos_positivos_iac
 
         try:
             if arquivo_upload is not None:
-                import tempfile
-
-                pasta_temp_upload = tempfile.mkdtemp(prefix="aspm_upload_inicial_")
-                caminho_bruto = os.path.join(pasta_temp_upload, arquivo_upload.name)
-                with open(caminho_bruto, "wb") as f:
-                    f.write(arquivo_upload.getvalue())
-
-                caminho_local, deve_limpar = preparar_repositorio_upload(caminho_bruto)
-                limpar_repositorio(pasta_temp_upload)
+                from Scanners.repo_utils import preparar_pasta_de_bytes
+                caminho_local, deve_limpar = preparar_pasta_de_bytes(
+                    arquivo_upload.getvalue(), arquivo_upload.name
+                )
             else:
                 caminho_local, deve_limpar = preparar_repositorio(url)
         except RuntimeError as e:
