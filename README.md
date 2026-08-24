@@ -21,7 +21,7 @@ diferentes ficam correlacionados sob o mesmo contexto de negócio.
   `ExternalId` protegendo contra confused deputy), com achados de postura de
   segurança classificados por criticidade.
 
-- **Análise por IA (Gemini)**: prioriza, classifica (CVSS) e explica os
+- **Análise por IA (Gemini)**: prioriza, classifica e explica os
   achados de todos os scanners em um único relatório executivo, com proteção
   ativa contra prompt injection.
 
@@ -103,15 +103,13 @@ plataforma quando o código é mergeado na main).
   achados para o endpoint `/webhook/pr-scan` da ASPM Platform.
 
 - **`workflows/aspm_pr_scan.yaml`** — workflow do GitHub Actions disparado
-  em Pull Requests: instala Semgrep, Checkov, Trivy (via repositório APT
-  oficial com verificação GPG) e roda `aspm_pr_scan.py`, autenticando no
-  GitHub via `GITHUB_TOKEN` para comentar no PR.
+  em Pull Requests: instala Semgrep, Checkov, Trivy e roda `aspm_pr_scan.py`,
+  autenticando no GitHub via `GITHUB_TOKEN` para comentar no PR.
 
 - **`workflows/aspm_ps_scan.yml`** — workflow disparado em push para a
   main: mesma instalação de ferramentas do workflow acima, mais o binário
-  do Gitleaks (versão fixada, baixado diretamente do release oficial no
-  GitHub) e roda `aspm_ps_scan.py`, enviando o resultado para a ASPM
-  Platform via `ASPM_WEBHOOK_URL`/`ASPM_API_KEY`.
+  do Gitleaks e roda `aspm_ps_scan.py`, enviando o resultado para a ASPM
+  Platform.
 
 - **`workflows/security.yml`** — pipeline de segurança mais amplo do
   próprio repositório da plataforma, com jobs independentes: SAST
@@ -124,7 +122,7 @@ plataforma quando o código é mergeado na main).
 
 - **`dependabot.yml`** — atualização automática semanal de dependências de
   GitHub Actions e imagens Docker, agrupadas por ecossistema, com período
-  de espera (cooldown) de 7 dias antes de abrir o PR de atualização.
+  de espera de 7 dias antes de abrir o PR de atualização.
 
 ### `.streamlit/`
 - **`config.toml`** — configuração da interface Streamlit; desativa o envio
@@ -136,9 +134,7 @@ plataforma quando o código é mergeado na main).
   com `unsafe-inline`/`unsafe-eval` (exigência do próprio framework
   Streamlit para renderizar), Non-Storable Content (HTML dinâmico por
   design) e Modern Web Application (alerta informativo sobre SPA, sem
-  risco associado). Referencia um documento externo
-  (`SECURITY-RISK-ACCEPTANCE.md`) para justificativa detalhada de cada
-  aceite de risco.
+  risco associado).
 
 ### `API/`
 API do webhook que recebe resultados de scan vindos do fluxo de CI/CD.
@@ -155,13 +151,11 @@ Autenticação e gestão de sessão dos usuários da plataforma.
 - **`auth.py`** — cadastro (com validação de usuário/e-mail/senha), login
   em duas etapas (senha + MFA por e-mail, código de 6 dígitos com
   expiração de 10 minutos e limite de tentativas), sessão via cookie
-  assinado com HMAC-SHA256 (não depende de JWT externo), e logout.
+  assinado com HMAC-SHA256, e logout.
 
 - **`crypto.py`** — utilitário de criptografia simétrica (Fernet) para
   valores sensíveis (`encrypt_value` / `decrypt_value`), usando uma chave
-  definida em `CREDENTIALS_ENCRYPTION_KEY` no `.env`. Não identificado uso
-  atual deste módulo nos demais arquivos revisados — disponível para uso
-  futuro (ex: armazenar credenciais de integração de forma reversível).
+  definida em `CREDENTIALS_ENCRYPTION_KEY` no `.env`.
 
 - **`email_service.py`** — envio do código MFA por e-mail via Gmail SMTP
   (SSL, porta 465), com corpo em texto simples e HTML.
@@ -170,9 +164,7 @@ Autenticação e gestão de sessão dos usuários da plataforma.
 Toda a integração com AWS: descoberta de inventário e checks de postura de
 segurança (CSPM). O acesso à conta do cliente é feito via AssumeRole em
 modelo hub-and-spoke: a plataforma usa uma credencial fixa própria
-(`AWS_HUB_ACCESS_KEY` / `AWS_HUB_SECRET_KEY`) para assumir a Role que o
-cliente cria na própria conta, validando um `ExternalId` compartilhado
-(proteção contra o ataque de "confused deputy").
+para assumir a Role que o cliente cria na própria conta.
 
 - **`account_checks.py`** — checks de nível de conta: política de senha da
   conta (tamanho mínimo, exigência de símbolos/números/maiúsculas,
@@ -195,25 +187,23 @@ cliente cria na própria conta, validando um `ExternalId` compartilhado
   como Crítico as portas sensíveis e Alto as demais.
 
 - **`iam_checks.py`** — `check_iam()`: por usuário IAM, verifica política
-  `AdministratorAccess` anexada diretamente (Crítico), ausência de MFA
-  (Alto) e access keys ativas há mais de 90 dias sem rotação (Médio).
+  `AdministratorAccess` anexada diretamente, ausência de MFA
+  e access keys ativas há mais de 90 dias sem rotação.
 
 - **`inventory.py`** — `descobrir_inventario()`: lista TODOS os recursos
   existentes na conta (não só os com problema de segurança) reaproveitando
   a mesma sessão AssumeRole do CSPM — buckets S3, usuários IAM, Security
-  Groups e instâncias EC2 (com nome extraído da tag "Name" quando
-  disponível).
+  Groups e instâncias EC2.
 
 - **`s3_checks.py`** — `check_s3()`: por bucket, verifica bucket policy e
-  ACL permitindo acesso público (Crítico), ausência de criptografia em
-  repouso (Médio) e ausência de versionamento (Baixo).
+  ACL permitindo acesso público, ausência de criptografia em
+  repouso e ausência de versionamento.
 
 - **`aspm-cspm-role.yaml`** — template CloudFormation que o cliente sobe
   na própria conta AWS para criar a IAM Role de leitura (policy gerenciada
   `SecurityAudit`), com trust policy restrita à conta da ASPM Platform e
-  validação por `ExternalId`. A saída do template (`RoleArn`) é o valor
-  colado no cadastro do componente Cloud na plataforma.
-
+  validação por `ExternalId`.
+  
 ### `Compliance/`
 Avaliação do nível de conformidade da própria plataforma (não do ativo
 analisado), usada na declaração de compliance dos relatórios PDF.
@@ -228,8 +218,7 @@ Camada de acesso a dados (SQLite).
 
 - **`db.py`** — schema completo (usuários, ativos, componentes, histórico,
   alertas, logs, API keys, sugestões de agrupamento) e todas as funções de
-  CRUD usadas pelo resto do sistema. Contém também a migração automática
-  do schema legado (Ativo único) para o modelo atual (Ativo + Componentes).
+  CRUD usadas pelo resto do sistema.
 
 ### `LLMs/`
 Toda a integração com modelos de linguagem (Gemini).
@@ -244,7 +233,7 @@ Toda a integração com modelos de linguagem (Gemini).
   linha).
 
 - **`sugestoes.py`** — `gerar_sugestoes_ia()`: ao final de cada re-scan,
-  envia todos os componentes Repositório/Cloud do usuário para o Gemini,
+  envia todos os componentes do ativo do usuário para o Gemini,
   que identifica quais provavelmente pertencem à mesma aplicação (por
   semelhança de identificador) e grava sugestões de agrupamento como
   "pendente" no banco, para confirmação manual no Dashboard.
@@ -284,9 +273,8 @@ inteligência de ameaças.
 
 - **`threat_intelligence.py`** — `buscar_cves_recentes()`: consulta a API
   pública da NVD (National Vulnerability Database) por CVEs publicadas
-  nos últimos N dias (padrão 7), extraindo score/severidade CVSS (com
-  suporte às versões 4.0, 3.1, 3.0 e 2) e produtos afetados (CPE). Usado
-  pelo chatbot para responder perguntas sobre ameaças/CVEs recentes.
+  nos últimos dias, extraindo score/severidade CVSS e produtos afetados.
+  Usado pelo chatbot para responder perguntas sobre ameaças/CVEs recentes.
 
 ### `NLP/`
 Assistente conversacional da plataforma.
@@ -301,22 +289,13 @@ Assistente conversacional da plataforma.
   deixando o modelo inventar informação.
 
 - **`nlp.py`** — `tela_chatbot()`: interface do chat no Streamlit, com
-  mensagem de boas-vindas estática (sem custo de chamada à API), suporte a
-  anexos (imagem, PDF, txt, py, csv, json) e tratamento de erro de cota da
-  API (429).
+  mensagem de boas-vindas estática, suporte a anexos (imagem, PDF, txt, py, csv, json)
+  e tratamento de erro de cota da API.
 
 ### `Regras/`
-- **`regras_semgrep.yaml`** — oito regras customizadas do Semgrep que
+- **`regras_semgrep.yaml`** — regras customizadas do Semgrep que
   substituem/refinam o comportamento do ruleset padrão para reduzir falso
-  positivo específico do stack da plataforma (Flask): XSS real (só via
-  `render_template`/`render_template_string`), Open Redirect real (sem
-  validação de destino), Command Injection real (`shell=True` com
-  variável, não comando fixo), Hardcoded Secret real (com whitelist de
-  placeholders como `changeme`/`example`), Desserialização insegura real
-  (`pickle.loads` com dado vindo de request HTTP), `yaml.load()` sem
-  SafeLoader, CSRF via `@csrf.exempt`, e Broken Access Control (rota
-  POST/DELETE sem nenhuma verificação de autenticação/sessão no corpo da
-  função).
+  positivo específico do stack da plataforma.
 
 ### `Scanners/`
 Wrappers de execução de cada ferramenta de scan, usados pelo fluxo
@@ -327,37 +306,32 @@ principal da plataforma (`app.py` e `Monitoring/monitor.py`).
   arquivo e por marcadores de conteúdo, no caso do CloudFormation) e roda
   o runner do Checkov correspondente. Retorna os achados SEM severidade
   pré-atribuída — essa classificação fica a cargo do Gemini
-  (`LLMs/gemini.py`), evitando depender da API paga do Bridgecrew/Prisma
-  Cloud. Cada achado carrega um bloco de contexto (categoria do check,
+  (`LLMs/gemini.py`). Cada achado carrega um bloco de contexto (categoria do check,
   guideline, arquivo/linhas) que ajuda a IA a classificar com mais
   precisão.
 
-- **`dlp.py`** — `rodar_dlp_scan()`: scanner próprio de DLP. Detecta CPF
-  (validação de dígito verificador), CNPJ (idem), cartão de crédito
-  (algoritmo de Luhn) e e-mail; reduz a confiança do achado para "média"
-  quando o arquivo parece ser de teste/fixture/mock, e mascara todo valor
+- **`dlp.py`** — `rodar_dlp_scan()`: scanner próprio de DLP. Detecta
+  CPF, CNPJ, cartão de crédito e e-mail. Reduz a confiança do achado para "média"
+  quando o arquivo parece ser de teste/fixture/mock, e máscara todo valor
   sensível antes de retornar (nunca expõe o dado real).
 
 - **`gitleaks.py`** — `rodar_gitleaks()`: roda o binário do Gitleaks
   (`detect --no-git`) contra um caminho local, escrevendo o relatório
-  JSON em um arquivo temporário multiplataforma (não usa o caminho
-  especial `/dev/stdout`, que só existe em Linux/Mac) e sempre retornando
+  JSON em um arquivo temporário multiplataforma e sempre retornando
   o segredo já mascarado.
+  
 - **`owaspzap.py`** — `rodar_zap()`: orquestra o OWASP ZAP para varredura
   DAST. Para tipo "API", tenta localizar automaticamente a especificação
-  OpenAPI/Swagger em caminhos comuns antes de importar os endpoints; para
-  "Aplicação", roda Spider tradicional + Ajax Spider (para renderizar
-  JavaScript) antes do Active Scan. Agrupa alertas duplicados por nome,
-  limitando a 3 endpoints de exemplo por alerta.
-
+  OpenAPI/Swagger em caminhos comuns antes de importar os endpoints, para
+  "Aplicação", roda Spider tradicional + Ajax Spider antes do Active Scan.
+  
 - **`repo_utils.py`** — `preparar_repositorio()` / `limpar_repositorio()`:
   resolve um único caminho local para o repositório (clonando apenas se
   for uma URL remota), compartilhado entre SAST, SCA e IaC na mesma
   análise — evita 3 clones separados do mesmo repositório.
 
 - **`semgrep.py`** — `rodar_semgrep()`: roda o Semgrep com o ruleset
-  customizado de `Regras/` mais vários rulesets públicos (auto, secrets,
-  flask, python, owasp-top-ten, java, javascript, cwe-top-25). Para cada
+  customizado de `Regras/` mais vários rulesets públicos. Para cada
   achado, extrai o snippet de código do bloco de função inteiro ao redor
   da linha (via AST nativo do Python, ou tree-sitter para outras
   linguagens como JS/TS/Java/PHP/Go/Ruby/C/C++/C#), dando ao Gemini o
@@ -372,11 +346,10 @@ principal da plataforma (`app.py` e `Monitoring/monitor.py`).
 
 - **`app.py`** — ponto de entrada da interface Streamlit. Define todas as
   telas (Dashboard, Análises, Ativos, Vulnerabilidades, Relatórios, Logs,
-  Chatbot, Painel Admin, Configurações), inicia o webhook e o túnel ngrok
-  em background, e contém a lógica de orquestração
-  `_executar_scanners_e_analisar` usada tanto na criação quanto na
-  visualização de componentes.
-- **`gerar_pdf.py`** — geração do relatório executivo em PDF (ReportLab):
+  Chatbot, Configurações), inicia o webhook e o túnel ngrok
+  em background.
+  
+- **`gerar_pdf.py`** — geração do relatório executivo em PDF:
   capa com metadados e ferramentas utilizadas, seção de vulnerabilidades
   separada por categoria (SAST/DAST, SCA, CSPM, IaC, Secrets, DLP),
   relatório narrativo da IA e declaração de conformidade SOC2/ISO 27001.
