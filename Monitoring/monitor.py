@@ -123,7 +123,7 @@ def _rescan_componente(usuario_id, ativo_id, ativo_nome, componente):
             )
 
         else:
-            from Scanners.repo_utils import preparar_repositorio, limpar_repositorio
+            from Scanners.repo_utils import preparar_repositorio, preparar_repositorio_upload, limpar_repositorio
 
             res_sast = res_sca = ""
             res_iac = formatar_achados_iac([])
@@ -132,9 +132,17 @@ def _rescan_componente(usuario_id, ativo_id, ativo_nome, componente):
 
             if tipo == "Repositório":
                 try:
-                    caminho_local, deve_limpar = preparar_repositorio(url)
+                    # NOVO: componentes criados via upload têm url no formato
+                    # "db://uploads_componentes/<id>" (ver Scanners/repo_utils.py
+                    # -> salvar_upload_permanente). preparar_repositorio() só
+                    # aceita URL git (http/https), então escolhemos a função
+                    # correta conforme o prefixo salvo no banco.
+                    if url and url.startswith("db://"):
+                        caminho_local, deve_limpar = preparar_repositorio_upload(url)
+                    else:
+                        caminho_local, deve_limpar = preparar_repositorio(url)
                 except RuntimeError as e:
-                    print(f"Erro ao clonar repositório para re-scan de {identificador_exibicao}: {e}")
+                    print(f"Erro ao preparar repositório para re-scan de {identificador_exibicao}: {e}")
                     return None
                 try:
                     res_sast = rodar_semgrep(caminho_local)
@@ -169,6 +177,9 @@ def _rescan_componente(usuario_id, ativo_id, ativo_nome, componente):
 
         registrar_historico_componente(usuario_id, comp_id, ativo_id, score_novo)
 
+        # NOVO: componentes via upload (url começando com "db://") não são
+        # endereços HTTP reais, então o check de disponibilidade continua
+        # restrito a URLs git/API/Aplicação de fato acessíveis pela rede.
         if tipo != "Cloud" and url and (url.startswith("http://") or url.startswith("https://")):
             verificar_disponibilidade(usuario_id, ativo_nome, url)
 

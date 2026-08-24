@@ -28,6 +28,7 @@ from Database.db import (
     criar_tabela,
     criar_ativo,
     adicionar_componente,
+    atualizar_componente,
     listar_ativos_db,
     listar_componentes,
     listar_componentes_usuario,
@@ -636,7 +637,7 @@ def exibir_sugestoes_agrupamento_banner():
         nomes = ", ".join(sug["componentes_labels"])
         alvo = sug["ativo_alvo_nome"] if sug["tipo"] == "vincular_existente" else sug["nome_sugerido"]
 
-        col_msg, col_botoes = st.columns([9, 1])
+        col_msg, col_botoes = st.columns([9, 2])
         with col_msg:
             st.markdown(f"""
                 <div style="background:rgba(124,58,237,0.15); border-left:4px solid {cor};
@@ -697,7 +698,7 @@ def exibir_sugestoes_agrupamento_banner():
 
     st.markdown("---")
 
-def _executar_scanners_e_analisar(tipo, url, ambiente, aws_role_arn=None, aws_region=None):
+def _executar_scanners_e_analisar(tipo, url, ambiente, aws_role_arn=None, aws_region=None, arquivo_upload=None):
 
     if tipo == "Cloud":
         from MachineLearning.false_positive import reduzir_falsos_positivos_cspm
@@ -725,11 +726,22 @@ def _executar_scanners_e_analisar(tipo, url, ambiente, aws_role_arn=None, aws_re
     descartados_iac = None
 
     if tipo == "Repositório":
-        from Scanners.repo_utils import preparar_repositorio, limpar_repositorio
+        from Scanners.repo_utils import preparar_repositorio, preparar_repositorio_upload, limpar_repositorio
         from MachineLearning.false_positive import reduzir_falsos_positivos_iac
 
         try:
-            caminho_local, deve_limpar = preparar_repositorio(url)
+            if arquivo_upload is not None:
+                import tempfile
+
+                pasta_temp_upload = tempfile.mkdtemp(prefix="aspm_upload_inicial_")
+                caminho_bruto = os.path.join(pasta_temp_upload, arquivo_upload.name)
+                with open(caminho_bruto, "wb") as f:
+                    f.write(arquivo_upload.getvalue())
+
+                caminho_local, deve_limpar = preparar_repositorio_upload(caminho_bruto)
+                limpar_repositorio(pasta_temp_upload)
+            else:
+                caminho_local, deve_limpar = preparar_repositorio(url)
         except RuntimeError as e:
             st.error(f"❌ {e}")
             st.stop()
@@ -966,6 +978,7 @@ elif selecionado == "Análises":
     aws_role_arn = None
     aws_region = None
     url = None
+    arquivo_upload = None
 
     if tipo == "Cloud":
         st.caption(
@@ -974,22 +987,40 @@ elif selecionado == "Análises":
         )
         aws_role_arn = st.text_input("ARN da Role (ex: arn:aws:iam::123456789012:role/ASPM-CSPM-ScannerRole)")
         aws_region = st.text_input("Região", value="us-east-2")
+    elif tipo == "Repositório":
+        origem_repo = st.radio(
+            "Origem do repositório",
+            ["URL do repositório (Git)", "Upload de arquivo"],
+            horizontal=True,
+        )
+        if origem_repo == "URL do repositório (Git)":
+            url = st.text_input("URL do repositório (ex: https://github.com/usuario/projeto)")
+        else:
+            st.caption(
+                "Envie o repositório como um arquivo .zip, ou um único arquivo de código "
+                "(.py, .js, .tf, etc.) para uma análise pontual."
+            )
+            arquivo_upload = st.file_uploader("Arquivo do repositório", type=None)
     else:
-        url = st.text_input("URL / Caminho do componente")
+        url = st.text_input("URL")
 
     ambiente = st.selectbox("Ambiente", ["Produção", "Homologação", "Desenvolvimento"], filter_mode=None)
 
     if st.button("🔍 Iniciar Análise"):
         if tipo == "Cloud" and (not aws_role_arn or not aws_role_arn.strip()):
             st.error("❌ Informe o ARN da Role.")
-        elif tipo != "Cloud" and (not url or not url.strip()):
+        elif tipo == "Repositório" and not url and arquivo_upload is None:
+            st.error("❌ Informe a URL do repositório ou envie um arquivo.")
+        elif tipo == "Repositório" and url and not url.strip().lower().startswith(("http://", "https://")):
+            st.error("❌ URL inválida. Informe uma URL válida iniciando com http:// ou https://")
+        elif tipo in ["API", "Aplicação"] and (not url or not url.strip()):
             st.error("❌ URL ou Caminho inválido.")
         elif tipo in ["API", "Aplicação"] and not url.strip().lower().startswith(("http://", "https://")):
             st.error("❌ URL inválida. Para os tipos 'API' e 'Aplicação', informe uma URL válida iniciando com http:// ou https://")
         else:
             registrar_log(usuario_id, nome_usuario,
                 acao="Scan Iniciado",
-                detalhe=f"Tipo: {tipo} | Alvo: {aws_role_arn or url}",
+                detalhe=f"Tipo: {tipo} | Alvo: {aws_role_arn or url or (arquivo_upload.name if arquivo_upload else '?')}",
                 nivel="INFORMATIVO",
                 aplicacao=escolha_ativo,
                 ambiente=ambiente,
@@ -997,19 +1028,29 @@ elif selecionado == "Análises":
             with st.spinner("Executando análise de segurança..."):
                 try:
                     crit, score, analise, total_achados_cloud = _executar_scanners_e_analisar(
-                        tipo, url, ambiente, aws_role_arn, aws_region
+                        tipo, url, ambiente, aws_role_arn, aws_region, arquivo_upload
                     )
 
                     if crit == "Erro":
                         st.error("❌ Erro na análise da IA. O componente não foi salvo.")
                     else:
-                        adicionar_componente(
+                        url_final = aws_role_arn.strip() if tipo == "Cloud" else url
+
+                        comp_id = adicionar_componente(
                             usuario_id, ativo_id_selecionado, tipo, ambiente,
-                            url=(aws_role_arn.strip() if tipo == "Cloud" else url),
+                            url=url_final,
                             criticidade=crit, score=score, analise=analise,
                             aws_role_arn=(aws_role_arn.strip() if aws_role_arn else None),
                             aws_region=(aws_region.strip() if aws_region else None),
                         )
+
+                        if tipo == "Repositório" and arquivo_upload is not None:
+                            from Scanners.repo_utils import salvar_upload_permanente
+                            caminho_persistido = salvar_upload_permanente(
+                                usuario_id, comp_id, arquivo_upload.getvalue(), arquivo_upload.name
+                            )
+                            atualizar_componente(usuario_id, comp_id, crit, score, analise, url=caminho_persistido)
+
                         detalhe_log = f"Score: {score} | Criticidade: {crit}"
                         if total_achados_cloud is not None:
                             detalhe_log += f" | {total_achados_cloud} achado(s)"

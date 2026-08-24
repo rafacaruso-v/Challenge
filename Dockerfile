@@ -1,4 +1,5 @@
 FROM ghcr.io/gitleaks/gitleaks:v8.30.1 AS gitleaks
+FROM aquasec/trivy:latest AS trivy
 
 FROM python:3.12-slim AS builder
 
@@ -31,6 +32,9 @@ COPY --from=builder /install /usr/local
 
 COPY --from=gitleaks /usr/bin/gitleaks /usr/local/bin/gitleaks
 RUN chmod +x /usr/local/bin/gitleaks
+
+COPY --from=trivy /usr/local/bin/trivy /usr/local/bin/trivy
+RUN chmod +x /usr/local/bin/trivy
 
 COPY . .
 

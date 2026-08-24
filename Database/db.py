@@ -102,6 +102,19 @@ def criar_tabela():
         )
     """)
 
+    # NOVO: tabela para persistir uploads de repositório (zip/arquivo único)
+    # como BLOB no próprio banco, em vez de em disco. componente_id é chave
+    # primária porque cada componente tem no máximo um upload associado.
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS uploads_componentes (
+            componente_id INTEGER PRIMARY KEY,
+            nome_arquivo TEXT NOT NULL,
+            conteudo BLOB NOT NULL,
+            criado_em TEXT NOT NULL,
+            FOREIGN KEY (componente_id) REFERENCES ativo_componentes (id) ON DELETE CASCADE
+        )
+    """)
+
     for sql in [
         "ALTER TABLE alertas ADD COLUMN usuario_id INTEGER",
         "ALTER TABLE historico ADD COLUMN usuario_id INTEGER",
@@ -987,4 +1000,37 @@ def mover_componente_para_ativo(usuario_id, componente_id, novo_ativo_id):
         UPDATE ativo_componentes SET ativo_id = ?
         WHERE id = ? AND usuario_id = ?
     """, (novo_ativo_id, componente_id, usuario_id))
+    conexao.commit()
+
+
+# NOVO: funções de acesso ao upload de repositório salvo como BLOB no banco.
+# Substituem a persistência em disco (pasta "Uploads/") usada anteriormente
+# em Scanners/repo_utils.py.
+
+def salvar_upload_db(componente_id: int, nome_arquivo: str, conteudo_bytes: bytes):
+    conexao = conectar()
+    cursor = conexao.cursor()
+    cursor.execute("""
+        INSERT OR REPLACE INTO uploads_componentes (componente_id, nome_arquivo, conteudo, criado_em)
+        VALUES (?, ?, ?, ?)
+    """, (
+        componente_id, nome_arquivo, conteudo_bytes,
+        datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    ))
+    conexao.commit()
+
+def buscar_upload_db(componente_id: int):
+    conexao = conectar()
+    cursor = conexao.cursor()
+    cursor.execute("""
+        SELECT nome_arquivo, conteudo
+        FROM uploads_componentes
+        WHERE componente_id = ?
+    """, (componente_id,))
+    return cursor.fetchone()
+
+def deletar_upload_db(componente_id: int):
+    conexao = conectar()
+    cursor = conexao.cursor()
+    cursor.execute("DELETE FROM uploads_componentes WHERE componente_id = ?", (componente_id,))
     conexao.commit()
