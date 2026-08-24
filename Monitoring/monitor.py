@@ -1,3 +1,4 @@
+import os
 import requests as req
 import sqlite3
 import time
@@ -19,6 +20,10 @@ def verificar_disponibilidade(usuario_id, ativo_nome, url):
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         }
+        token = os.environ.get("GITHUB_TOKEN", "").strip()
+        if token and "github.com" in url:
+            headers["Authorization"] = f"Bearer {token}"
+
         resposta = req.get(url, timeout=10, headers=headers)
         if resposta.status_code >= 400:
             salvar_alerta(
@@ -132,11 +137,6 @@ def _rescan_componente(usuario_id, ativo_id, ativo_nome, componente):
 
             if tipo == "Repositório":
                 try:
-                    # NOVO: componentes criados via upload têm url no formato
-                    # "db://uploads_componentes/<id>" (ver Scanners/repo_utils.py
-                    # -> salvar_upload_permanente). preparar_repositorio() só
-                    # aceita URL git (http/https), então escolhemos a função
-                    # correta conforme o prefixo salvo no banco.
                     if url and url.startswith("db://"):
                         caminho_local, deve_limpar = preparar_repositorio_upload(url)
                     else:
@@ -177,9 +177,6 @@ def _rescan_componente(usuario_id, ativo_id, ativo_nome, componente):
 
         registrar_historico_componente(usuario_id, comp_id, ativo_id, score_novo)
 
-        # NOVO: componentes via upload (url começando com "db://") não são
-        # endereços HTTP reais, então o check de disponibilidade continua
-        # restrito a URLs git/API/Aplicação de fato acessíveis pela rede.
         if tipo != "Cloud" and url and (url.startswith("http://") or url.startswith("https://")):
             verificar_disponibilidade(usuario_id, ativo_nome, url)
 
