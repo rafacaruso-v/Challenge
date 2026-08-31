@@ -1,7 +1,7 @@
 FROM ghcr.io/gitleaks/gitleaks:v8.30.1 AS gitleaks
 FROM aquasec/trivy:latest AS trivy
 
-FROM python:3.12-slim AS builder
+FROM python:3.14-slim AS builder
 
 WORKDIR /app
 
@@ -22,7 +22,7 @@ COPY requirements.txt .
 RUN python -m pip install --no-cache-dir --upgrade pip
 RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 
-FROM python:3.12-slim
+FROM python:3.14-slim
 
 WORKDIR /app
 
