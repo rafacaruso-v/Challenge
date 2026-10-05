@@ -1,12 +1,6 @@
 # -----------------------------------------------------------------------------
 # GRUPO 1 — pip (instalador de pacotes Python, imagem base python:3.12-slim)
 # -----------------------------------------------------------------------------
-# Falhas na extração de arquivos .tar/.zip pelo pip (path traversal, symlink
-# escapando do diretório de destino, arquivos tar+zip concatenados tratados
-# incorretamente). Exploração exigiria instalar um pacote malicioso de forma
-# deliberada — risco baixo no nosso fluxo (requirements.txt fixo, sem
-# instalação dinâmica de pacotes arbitrários em runtime).
-
 CVE-2025-8869
 CVE-2026-3219
 CVE-2026-1703
@@ -17,13 +11,6 @@ CVE-2026-8643
 # -----------------------------------------------------------------------------
 # GRUPO 2 — golang.org/x/crypto (binário Gitleaks v8.30.1)
 # -----------------------------------------------------------------------------
-# Biblioteca de criptografia auxiliar do Go (SSH, bcrypt, etc.), linkada
-# estaticamente dentro do binário oficial do Gitleaks. v8.30.1 é a versão
-# mais recente publicada até a data de revisão acima — não há release do
-# Gitleaks ainda que corrija isso (fix upstream em x/crypto 0.52.0+/0.55.0+).
-# Nosso uso do Gitleaks (`gitleaks detect --no-git`, ver Scanners/gitleaks.py)
-# não abre conexão SSH, então o risco prático de exploração é baixo.
-
 CVE-2026-39827
 CVE-2026-39828
 CVE-2026-39829
@@ -43,6 +30,7 @@ CVE-2026-56858
 CVE-2026-56859
 CVE-2026-56860
 CVE-2026-56862
+CVE-2025-47913
 
 
 # -----------------------------------------------------------------------------
@@ -54,12 +42,6 @@ CVE-2026-56852
 # -----------------------------------------------------------------------------
 # GRUPO 4 — Biblioteca padrão do Go / toolchain (binário Gitleaks/Trivy)
 # -----------------------------------------------------------------------------
-# Falhas no runtime/compilador Go (versão anterior à 1.25.9) usado para
-# compilar os binários de terceiros embutidos na imagem — principalmente DoS
-# em crypto/x509, crypto/tls (validação de cadeia de certificados) e net.
-# Não é código nosso; depende de quando o projeto upstream recompilar com
-# uma versão mais nova do Go.
-
 CVE-2026-32280
 CVE-2026-32281
 CVE-2026-32282
@@ -75,5 +57,15 @@ CVE-2026-27145
 CVE-2026-39820
 CVE-2026-39821
 CVE-2026-39822
+CVE-2026-39836
 CVE-2026-42499
 CVE-2026-42504
+
+
+# -----------------------------------------------------------------------------
+# GRUPO 5 
+# -----------------------------------------------------------------------------
+CVE-2025-11579
+CVE-2025-58058
+CVE-2025-47914
+CVE-2025-58181
