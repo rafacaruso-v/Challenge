@@ -132,7 +132,6 @@ intervalo configurado (30 minutos a 24 horas), consolidando os resultados
 em um único alerta resumido por ciclo, verificando disponibilidade e
 anomalias, e disparando a geração de sugestões de agrupamento ao final.
 
----
 
 ## Arquitetura e fluxo de uma análise
 
