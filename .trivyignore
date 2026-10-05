@@ -38,6 +38,7 @@ CVE-2026-46595
 CVE-2026-46597
 CVE-2026-46598
 CVE-2026-56853
+CVE-2026-56854
 CVE-2026-56858
 CVE-2026-56859
 CVE-2026-56860
@@ -71,19 +72,8 @@ CVE-2026-33818
 CVE-2026-25679
 CVE-2026-27142
 CVE-2026-27145
+CVE-2026-39820
+CVE-2026-39821
+CVE-2026-39822
 CVE-2026-42499
 CVE-2026-42504
-
-
-# -----------------------------------------------------------------------------
-# GRUPO 5 — Origem não confirmada (pendente de investigação)
-# -----------------------------------------------------------------------------
-# Não foi possível confirmar com uma fonte confiável a qual pacote/binário
-# estas CVEs pertencem. Mantidas suprimidas por ora para não travar o
-# pipeline, mas precisam de investigação dedicada antes da próxima revisão.
-
-CVE-2025-11579
-CVE-2025-58058
-CVE-2025-47913
-CVE-2025-47914
-CVE-2025-58181
