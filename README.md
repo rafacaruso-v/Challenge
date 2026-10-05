@@ -14,7 +14,6 @@ consolidando tudo em um único painel de risco por aplicação/negócio.
 - [Segurança da própria plataforma](#segurança-da-própria-plataforma)
 - [Stack técnica](#stack-técnica)
 - [Estrutura de pastas e arquivos](#estrutura-de-pastas-e-arquivos)
-- [Limitações conhecidas](#limitações-conhecidas)
 
 ---
 
