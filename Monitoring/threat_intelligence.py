@@ -127,9 +127,7 @@ def buscar_cves_recentes(dias=7):
         return resultado
 
     except requests.exceptions.RequestException as e:
-
         return f"Erro ao consultar a API da NVD: {e}"
 
     except Exception as e:
-
         return f"Erro inesperado: {e}"
