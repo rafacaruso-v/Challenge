@@ -96,28 +96,14 @@ def _iniciar_webhook_background():
     return thread
  
  
-@st.cache_resource
-def _iniciar_ngrok():
-    authtoken = os.environ.get("NGROK_AUTHTOKEN", "").strip()
-    dominio = os.environ.get("NGROK_DOMAIN", "").strip()
- 
-    if not authtoken:
-        return None
- 
-    from pyngrok import ngrok, conf
-    conf.get_default().auth_token = authtoken
- 
-    if dominio:
-        tunnel = ngrok.connect(addr="8000", domain=dominio)
-    else:
-        tunnel = ngrok.connect(addr="8000")
- 
-    return tunnel
- 
 _iniciar_webhook_background()
-_tunnel = _iniciar_ngrok()
-if _tunnel:
-    st.session_state["webhook_url_publica"] = _tunnel.public_url
+
+_dominio_ngrok = os.environ.get("NGROK_DOMAIN", "").strip()
+if _dominio_ngrok:
+    st.session_state["webhook_url_publica"] = (
+        _dominio_ngrok if _dominio_ngrok.startswith("http")
+        else f"https://{_dominio_ngrok}"
+    )
 
 
 CORES_NIVEL = {
