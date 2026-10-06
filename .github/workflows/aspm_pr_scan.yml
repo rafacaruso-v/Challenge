@@ -25,10 +25,6 @@ jobs:
       - name: Instalar Semgrep e dependencias Python
         run: |
           pip install semgrep google-genai requests --break-system-packages
-          semgrep scan --config auto \
-            --exclude-rule generic.nginx.security.missing-internal.missing-internal \
-            --exclude-rule generic.nginx.security.possible-h2c-smuggling.possible-nginx-h2c-smuggling \
-            --error
 
       - name: Instalar Trivy (via repositorio APT com verificação GPG)
         run: |

@@ -27,13 +27,21 @@ def _sanitizar_texto(texto: str) -> str:
 def rodar_semgrep() -> list:
     try:
         resultado = subprocess.run(
-            ["semgrep", "--config=auto", "--json", "--quiet", "."],
+            [
+                "semgrep",
+                "--config=auto",
+                "--exclude-rule", "generic.nginx.security.missing-internal.missing-internal",
+                "--exclude-rule", "generic.nginx.security.possible-h2c-smuggling.possible-nginx-h2c-smuggling",
+                "--json",
+                "--quiet",
+                "."
+            ],
             capture_output=True, text=True, timeout=300
         )
         dados = json.loads(resultado.stdout or "{}")
         return dados.get("results", [])
     except Exception as e:
-        print(f"[aviso] Falha ao rodar Semgrep: {e}", file=sys.stderr)
+        print(f"[Aviso] Falha ao rodar Semgrep: {e}", file=sys.stderr)
         return []
 
 
