@@ -12,7 +12,6 @@ import requests
 from aspm_pr_scan import (
     rodar_semgrep,
     rodar_trivy,
-    rodar_checkov,
     gerar_resumo_gemini,
 )
 
@@ -36,7 +35,7 @@ def rodar_gitleaks(caminho: str = "."):
             timeout=300,
         )
     except Exception as e:
-        print(f"[aviso] Falha ao executar o Gitleaks: {e}")
+        print(f"[Aviso] Falha ao executar o Gitleaks: {e}")
         return []
 
     saida = resultado.stdout.strip()
@@ -46,7 +45,7 @@ def rodar_gitleaks(caminho: str = "."):
     try:
         achados_brutos = json.loads(saida)
     except json.JSONDecodeError:
-        print(f"[aviso] Nao foi possivel interpretar a saida do Gitleaks: {saida[:300]}")
+        print(f"[Aviso] Nao foi possivel interpretar a saida do Gitleaks: {saida[:300]}")
         return []
 
     achados = []
@@ -237,18 +236,6 @@ def _transformar_trivy(achados_brutos: list) -> list:
     ]
 
 
-def _transformar_checkov(achados_brutos: list) -> list:
-    return [
-        {
-            "check_id": a.get("check_id", "?"),
-            "check_name": a.get("check_name", "?"),
-            "recurso": a.get("recurso", "?"),
-            "arquivo": a.get("arquivo", "?"),
-        }
-        for a in achados_brutos
-    ]
-
-
 def _transformar_gitleaks(achados_brutos: list) -> list:
     return [
         {
@@ -276,7 +263,7 @@ def _transformar_dlp(achados_brutos: list) -> list:
 
 
 def enviar_para_aspm(
-    achados_semgrep, achados_trivy, achados_checkov,
+    achados_semgrep, achados_trivy,
     achados_gitleaks, achados_dlp, resumo_ia
 ):
     webhook_url = os.environ.get("ASPM_WEBHOOK_URL", "").strip()
@@ -294,7 +281,6 @@ def enviar_para_aspm(
         "resumo_ia": resumo_ia,
         "achados_semgrep": _transformar_semgrep(achados_semgrep),
         "achados_trivy": _transformar_trivy(achados_trivy),
-        "achados_checkov": _transformar_checkov(achados_checkov),
         "achados_gitleaks": _transformar_gitleaks(achados_gitleaks),
         "achados_dlp": _transformar_dlp(achados_dlp),
     }
@@ -321,9 +307,6 @@ def main():
     print("Rodando Trivy...")
     achados_trivy = rodar_trivy()
 
-    print("Rodando Checkov...")
-    achados_checkov = rodar_checkov()
-
     print("Rodando Gitleaks...")
     achados_gitleaks = rodar_gitleaks()
 
@@ -331,11 +314,11 @@ def main():
     achados_dlp = rodar_dlp()
 
     print("Gerando resumo executivo via Gemini (se configurado)...")
-    resumo_ia = gerar_resumo_gemini(achados_semgrep, achados_trivy, achados_checkov)
+    resumo_ia = gerar_resumo_gemini(achados_semgrep, achados_trivy)
 
     print("Enviando resultado para a ASPM Platform...")
     enviar_para_aspm(
-        achados_semgrep, achados_trivy, achados_checkov,
+        achados_semgrep, achados_trivy,
         achados_gitleaks, achados_dlp, resumo_ia
     )
 

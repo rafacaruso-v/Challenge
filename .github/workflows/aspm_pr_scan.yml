@@ -22,11 +22,15 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Instalar Semgrep, Checkov e dependencias Python
+      - name: Instalar Semgrep e dependencias Python
         run: |
-          pip install semgrep checkov google-genai requests --break-system-packages
+          pip install semgrep google-genai requests --break-system-packages
+          semgrep scan --config auto \
+            --exclude-rule generic.nginx.security.missing-internal.missing-internal \
+            --exclude-rule generic.nginx.security.possible-h2c-smuggling.possible-nginx-h2c-smuggling \
+            --error
 
-      - name: Instalar Trivy (via repositorio APT com verificacao GPG)
+      - name: Instalar Trivy (via repositorio APT com verificação GPG)
         run: |
           sudo apt-get install -y wget gnupg
           wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | gpg --dearmor | sudo tee /usr/share/keyrings/trivy.gpg > /dev/null

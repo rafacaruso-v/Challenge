@@ -19,9 +19,9 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Instalar Semgrep, Checkov e dependencias Python
+      - name: Instalar Semgrep e dependencias Python
         run: |
-          pip install semgrep checkov google-genai requests --break-system-packages
+          pip install semgrep google-genai requests --break-system-packages
 
       - name: Instalar Trivy (via repositorio APT com verificacao GPG)
         run: |

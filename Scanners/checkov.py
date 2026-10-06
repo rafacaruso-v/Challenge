@@ -61,22 +61,6 @@ def _detectar_tipos_iac(caminho_local: str) -> set:
 
 
 def _rodar_runner(caminho_local: str, tipo_iac: str) -> list:
-    """
-    Roda o Checkov para um framework especifico (terraform/cloudformation) e
-    retorna os achados SEM classificacao de severidade.
-
-    A severidade e responsabilidade da camada de IA (LLMs/gemini.py), que ja
-    consolida e classifica (Critico/Alto/Medio/Baixo) os achados de todos os
-    scanners (Semgrep, Trivy, Checkov) de forma unificada. Isso evita manter
-    um mapa de severidades local desatualizavel e evita depender da API paga
-    da plataforma Bridgecrew/Prisma Cloud (que retorna 403 sem uma conta/API
-    key vinculada e nao possui mais self-signup gratuito).
-
-    Cada achado carrega um bloco "contexto_ia" com metadados que o proprio
-    Checkov ja preenche localmente (sem chamada externa), como o link do
-    guideline e a categoria do check (ex: IAM, Networking, Encryption),
-    que servem de sinal para a IA classificar a severidade com mais precisao.
-    """
     runner_filter = RunnerFilter(framework=[tipo_iac])
     runner = TfRunner() if tipo_iac == "terraform" else CfnRunner()
 

@@ -176,7 +176,7 @@ A plataforma roda inteiramente via Docker Compose, com 5 serviços:
 | `webhook` | API FastAPI (`API/webhook.py`), recebe os resultados do fluxo de CI/CD |
 | `zap` | Daemon do OWASP ZAP, usado pelo scanner DAST |
 | `ngrok` | Túnel com domínio fixo, expõe o webhook para o GitHub Actions conseguir alcançá-lo |
-| `nginx` | Proxy reverso na porta 80, único ponto de entrada externo da interface |
+| `nginx` | Proxy reverso, único ponto de entrada externo da interface |
 
 O Streamlit **nunca é exposto diretamente** — sua porta (`8501`) só existe
 dentro da rede Docker interna (`aspm-network`); todo acesso externo passa
