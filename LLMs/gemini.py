@@ -238,12 +238,7 @@ def formatar_achados_iac(achados: list) -> str:
 
 
 def formatar_achados_secrets(achados) -> str:
-    """
-    Formata os achados brutos do Gitleaks (Scanners/gitleaks.py) para o prompt.
-    NUNCA inclui o valor real da credencial — apenas a versão já mascarada
-    que vem de Scanners/gitleaks.py (_mascarar_segredo).
-    Aceita também a string de erro que Scanners/gitleaks.py pode retornar.
-    """
+    
     if isinstance(achados, str):
         return achados
 

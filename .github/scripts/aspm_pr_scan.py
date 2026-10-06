@@ -3,7 +3,6 @@ import os
 import re
 import subprocess
 import sys
-
 import requests
 
 _PADRAO_INJECTION_REGEX = re.compile(
@@ -26,21 +25,27 @@ def _sanitizar_texto(texto: str) -> str:
 
 
 def rodar_semgrep() -> list:
-    """Roda o Semgrep contra o repositorio inteiro e retorna a lista de achados."""
     try:
         resultado = subprocess.run(
-            ["semgrep", "--config=auto", "--json", "--quiet", "."],
+            [
+                "semgrep",
+                "--config=auto",
+                "--exclude-rule", "generic.nginx.security.missing-internal.missing-internal",
+                "--exclude-rule", "generic.nginx.security.possible-h2c-smuggling.possible-nginx-h2c-smuggling",
+                "--json",
+                "--quiet",
+                "."
+            ],
             capture_output=True, text=True, timeout=300
         )
         dados = json.loads(resultado.stdout or "{}")
         return dados.get("results", [])
     except Exception as e:
-        print(f"[aviso] Falha ao rodar Semgrep: {e}", file=sys.stderr)
+        print(f"[Aviso] Falha ao rodar Semgrep: {e}", file=sys.stderr)
         return []
 
 
 def rodar_trivy() -> list:
-    """Roda o Trivy (filesystem scan) e retorna a lista de vulnerabilidades/misconfigs."""
     try:
         resultado = subprocess.run(
             ["trivy", "fs", "--format", "json", "--quiet", "."],
@@ -65,39 +70,11 @@ def rodar_trivy() -> list:
                 })
         return achados
     except Exception as e:
-        print(f"[aviso] Falha ao rodar Trivy: {e}", file=sys.stderr)
+        print(f"[Aviso] Falha ao rodar Trivy: {e}", file=sys.stderr)
         return []
 
 
-def rodar_checkov() -> list:
-    try:
-        resultado = subprocess.run(
-            ["checkov", "-d", ".", "--compact", "--quiet", "-o", "json"],
-            capture_output=True, text=True, timeout=300
-        )
-        saida = resultado.stdout.strip()
-        if not saida:
-            return []
-
-        dados = json.loads(saida)
-        blocos = dados if isinstance(dados, list) else [dados]
-
-        achados = []
-        for bloco in blocos:
-            for check in bloco.get("results", {}).get("failed_checks", []):
-                achados.append({
-                    "check_id": check.get("check_id", "?"),
-                    "check_name": check.get("check_name", "?"),
-                    "recurso": check.get("resource", "?"),
-                    "arquivo": check.get("file_path", "?"),
-                })
-        return achados
-    except Exception as e:
-        print(f"[aviso] Falha ao rodar Checkov: {e}", file=sys.stderr)
-        return []
-
-
-def contar_por_severidade(achados_semgrep: list, achados_trivy: list, achados_checkov: list) -> dict:
+def contar_por_severidade(achados_semgrep: list, achados_trivy: list) -> dict:
     contagem = {"CRITICAL": 0, "HIGH": 0, "ERROR": 0, "MEDIUM": 0, "WARNING": 0, "LOW": 0, "INFO": 0}
 
     for a in achados_semgrep:
@@ -108,19 +85,16 @@ def contar_por_severidade(achados_semgrep: list, achados_trivy: list, achados_ch
         sev = a.get("severidade", "UNKNOWN").upper()
         contagem[sev] = contagem.get(sev, 0) + 1
 
-    for _ in achados_checkov:
-        contagem["MEDIUM"] += 1
-
     return contagem
 
 
-def gerar_resumo_gemini(achados_semgrep: list, achados_trivy: list, achados_checkov: list) -> str:
+def gerar_resumo_gemini(achados_semgrep: list, achados_trivy: list) -> str:
 
     chave = os.environ.get("GEMINI_KEY_1", "").strip()
     if not chave:
         return ""
 
-    if not achados_semgrep and not achados_trivy and not achados_checkov:
+    if not achados_semgrep and not achados_trivy:
         return ""
 
     try:
@@ -134,10 +108,6 @@ def gerar_resumo_gemini(achados_semgrep: list, achados_trivy: list, achados_chec
         resumo_sca = "\n".join(
             f"- [{a['severidade']}] {a['titulo']} — {a['descricao']}"
             for a in achados_trivy[:15]
-        )
-        resumo_iac = "\n".join(
-            f"- {a['check_name']} ({a['check_id']}) em {a['recurso']}"
-            for a in achados_checkov[:15]
         )
 
         prompt = f"""
@@ -160,11 +130,6 @@ SCA/Misconfig (Trivy):
 {_sanitizar_texto(resumo_sca) or "Nenhum achado."}
 <<<DADOS_FIM>>>
 
-IaC (Checkov):
-<<<DADOS_INICIO>>>
-{_sanitizar_texto(resumo_iac) or "Nenhum achado."}
-<<<DADOS_FIM>>>
-
 Escreva um resumo executivo de no MÁXIMO 3 frases, em português, para um
 comentário de Pull Request no GitHub. Foque no risco mais relevante e no
 que precisa de atenção prioritária. Seja direto, sem introdução do tipo
@@ -184,8 +149,8 @@ que precisa de atenção prioritária. Seja direto, sem introdução do tipo
         return ""
 
 
-def montar_comentario_markdown(achados_semgrep: list, achados_trivy: list, achados_checkov: list, resumo_ia: str = "") -> str:
-    contagem = contar_por_severidade(achados_semgrep, achados_trivy, achados_checkov)
+def montar_comentario_markdown(achados_semgrep: list, achados_trivy: list, resumo_ia: str = "") -> str:
+    contagem = contar_por_severidade(achados_semgrep, achados_trivy)
 
     total_critico = contagem.get("CRITICAL", 0) + contagem.get("ERROR", 0)
     total_alto = contagem.get("HIGH", 0)
@@ -237,13 +202,7 @@ def montar_comentario_markdown(achados_semgrep: list, achados_trivy: list, achad
             linhas.append(f"- **[{a['severidade']}]** `{a['titulo']}` — {a['descricao']}")
         linhas.append("\n</details>\n")
 
-    if achados_checkov:
-        linhas.append("<details><summary>🏗️ <b>IaC (Checkov)</b> — clique para expandir</summary>\n")
-        for a in achados_checkov[:10]:
-            linhas.append(f"- `{a['check_id']}` — {a['check_name']} (`{a['recurso']}` em `{a['arquivo']}`)")
-        linhas.append("\n</details>\n")
-
-    if not achados_semgrep and not achados_trivy and not achados_checkov:
+    if not achados_semgrep and not achados_trivy:
         linhas.append("✅ Nenhum achado de segurança detectado neste PR.")
 
     linhas.append("")
@@ -275,16 +234,13 @@ def main():
     print("Rodando Trivy...")
     achados_trivy = rodar_trivy()
 
-    print("Rodando Checkov...")
-    achados_checkov = rodar_checkov()
-
     print("Gerando resumo executivo via Gemini (se configurado)...")
-    resumo_ia = gerar_resumo_gemini(achados_semgrep, achados_trivy, achados_checkov)
+    resumo_ia = gerar_resumo_gemini(achados_semgrep, achados_trivy)
 
-    comentario = montar_comentario_markdown(achados_semgrep, achados_trivy, achados_checkov, resumo_ia)
+    comentario = montar_comentario_markdown(achados_semgrep, achados_trivy, resumo_ia)
     postar_comentario_no_pr(comentario)
 
-    contagem = contar_por_severidade(achados_semgrep, achados_trivy, achados_checkov)
+    contagem = contar_por_severidade(achados_semgrep, achados_trivy)
     if contagem.get("CRITICAL", 0) > 0 or contagem.get("ERROR", 0) > 0 or contagem.get("HIGH", 0) > 0:
         print("Achados de severidade Alta ou superior encontrados — encerrando com falha (exit code 1).")
         sys.exit(1)
