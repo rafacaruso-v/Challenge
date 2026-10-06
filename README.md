@@ -394,3 +394,12 @@ Wrappers de execução de cada ferramenta de scan.
   credenciais de admin padrão e de e-mail, chave de criptografia.
 
 ---
+
+## License
+
+This project is licensed under the **GNU General Public License v3.0 or later (GPL-3.0-or-later)**.
+
+See the full license text in [LICENSE.md](LICENSE.md).
+
+**SPDX-License-Identifier:** `GPL-3.0-or-later`
+
