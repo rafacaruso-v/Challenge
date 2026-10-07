@@ -7,9 +7,11 @@ consolidando tudo em um único painel de risco por aplicação/negócio.
 
 Membros do grupo:
 
-RM571380 = Rafael Caruso Vasconcellos
-RM573671 = Guilherme Isidoro Da Silva Monteiro
-RM570214 = João Pedro Marin de Oliveira
+Rafael Caruso Vasconcellos
+
+Guilherme Isidoro Da Silva Monteiro
+
+João Pedro Marin de Oliveira
 
 
 ## Índice
