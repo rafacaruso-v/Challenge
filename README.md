@@ -5,6 +5,13 @@ a descoberta de ativos, a execução de scanners de segurança (SAST, DAST, SCA,
 IaC, CSPM, Secrets, DLP) e a análise dos achados por IA (Google Gemini),
 consolidando tudo em um único painel de risco por aplicação/negócio.
 
+Membros do grupo:
+
+RM571380 = Rafael Caruso Vasconcellos
+RM573671 = Guilherme Isidoro Da Silva Monteiro
+RM570214 = João Pedro Marin de Oliveira
+
+
 ## Índice
 
 - [Conceito central: Ativos e Componentes](#conceito-central-ativos-e-componentes)
@@ -397,9 +404,9 @@ Wrappers de execução de cada ferramenta de scan.
 
 ## License
 
-This project is licensed under the **GNU General Public License v3.0 or later (GPL-3.0-or-later)**.
+Este projeto está licenciado sob a **GNU General Public License v3.0 ou posterior (GPL-3.0-or-later)**.
 
-See the full license text in [LICENSE.md](LICENSE.md).
+Consulte o texto completo da licença em [LICENSE.md](LICENSE.md).
 
 **SPDX-License-Identifier:** `GPL-3.0-or-later`
 
