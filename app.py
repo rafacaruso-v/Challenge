@@ -76,7 +76,7 @@ div[data-baseweb="select"] * {
 st.html(estilo_cursor)
 
 st.set_page_config(
-    page_title="ASPM Platform",
+    page_title="CyberTubbies",
     page_icon="logo.ico",
     layout="wide"
 )
@@ -304,7 +304,7 @@ with st.sidebar:
             </div>
         """, unsafe_allow_html=True)
     else:
-        st.markdown("<h1 style='text-align:center;'>🛡️ ASPM</h1>", unsafe_allow_html=True)
+        st.markdown("<h1 style='text-align:center;'>🛡️ CyberTubbies</h1>", unsafe_allow_html=True)
 
     st.markdown(
         f"<p style='text-align:center; opacity:0.7; margin-bottom:10px;'>Olá, <b>{nome_usuario}</b></p>",
@@ -779,7 +779,7 @@ def _executar_scanners_e_analisar(tipo, url, ambiente, aws_role_arn=None, aws_re
 
 
 if selecionado == "Dashboard":
-    st.markdown("<div><p id='titulo-principal'>ASPM PLATFORM</p></div>", unsafe_allow_html=True)
+    st.markdown("<div><p id='titulo-principal'>CyberTubbies</p></div>", unsafe_allow_html=True)
     st.markdown("<p style='font-size:18px; margin-bottom:40px; opacity:0.8;'>Application Security Posture Management</p>", unsafe_allow_html=True)
 
     exibir_alertas_banner()
