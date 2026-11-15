@@ -129,9 +129,9 @@ logo_base64 = get_base64_image(caminho_logo)
 st.markdown(
     f"""
     <style>
-    .stApp {{ background: var(--background-color); transition: all 0.8s ease; }}
+    .stApp {{ background: #0e1117; transition: all 0.8s ease; }}
     section[data-testid="stSidebar"] {{
-        background: var(--secondary-background-color);
+        background: #0e1117;
         border-right: 1px solid rgba(168,85,247,0.15);
         backdrop-filter: blur(10px);
         transition: all 0.4s ease;
@@ -149,12 +149,12 @@ st.markdown(
         letter-spacing: 2px; margin-bottom: 5px;
         text-shadow: 0px 0px 25px rgba(168,85,247,0.35);
     }}
-    p, label, div {{ color: var(--text-color); transition: 0.2s ease; }}
+    p, label, div {{ color: #fafafa; transition: 0.2s ease; }}
     .stTextInput input, .stSelectbox div[data-baseweb="select"] {{
-        background-color: var(--secondary-background-color) !important;
+        background-color: #262730 !important;
         border: 1px solid rgba(168,85,247,0.2) !important;
         border-radius: 12px; transition: 0.4s ease;
-        color: var(--text-color) !important;
+        color: #fafafa !important;
     }}
     .stButton button {{
         background: linear-gradient(90deg, #7c3aed, #a855f7) !important;
@@ -177,7 +177,7 @@ st.markdown(
     .vuln-item {{
         font-size:13px; padding:6px 0px 6px 12px;
         border-bottom:1px solid rgba(255,255,255,0.05);
-        line-height:1.5; color:var(--text-color); opacity:0.9;
+        line-height:1.5; color:#fafafa; opacity:0.9;
     }}
     .vuln-item:last-child {{ border-bottom: none; }}
     .vuln-divider {{ border: none; border-top: 1px solid rgba(255,255,255,0.08); margin: 24px 0; }}
@@ -914,7 +914,7 @@ if selecionado == "Dashboard":
         st.info("Nenhum ativo cadastrado ainda. Vá para a aba 'Análises' para começar.")
 
 elif selecionado == "Análises":
-    st.markdown("<div style='font-size:32px; font-weight:700; margin-bottom:20px; color:var(--text-color);'>Análise de Ativo</div>", unsafe_allow_html=True)
+    st.markdown("<div style='font-size:32px; font-weight:700; margin-bottom:20px; color:#fafafa;'>Análise de Ativo</div>", unsafe_allow_html=True)
     st.caption(
         "Um Ativo representa a aplicação/negócio. Cada Ativo pode ter vários componentes "
         "vinculados (repositório, instâncias em diferentes ambientes, conta cloud) — assim, "
@@ -1053,7 +1053,7 @@ elif selecionado == "Análises":
                     st.error(f"Erro inesperado: {e}")
 
 elif selecionado == "Ativos":
-    st.markdown("<div style='font-size:32px; font-weight:700; margin-bottom:20px; color:var(--text-color);'>Inventário de Ativos</div>", unsafe_allow_html=True)
+    st.markdown("<div style='font-size:32px; font-weight:700; margin-bottom:20px; color:#fafafa;'>Inventário de Ativos</div>", unsafe_allow_html=True)
 
     @st.dialog("Confirmar exclusão")
     def _modal_confirmar_exclusao_ativo(ativo_id, ativo_nome):
@@ -1148,7 +1148,7 @@ elif selecionado == "Ativos":
         st.info("Nenhum ativo cadastrado.")
 
 elif selecionado == "Vulnerabilidades":
-    st.markdown("<div style='font-size:32px; font-weight:700; margin-bottom:20px; color:var(--text-color);'>Gestão de Vulnerabilidades</div>", unsafe_allow_html=True)
+    st.markdown("<div style='font-size:32px; font-weight:700; margin-bottom:20px; color:#fafafa;'>Gestão de Vulnerabilidades</div>", unsafe_allow_html=True)
     componentes = listar_componentes_usuario(usuario_id)
     if componentes:
         opcoes_componentes = {
@@ -1203,7 +1203,7 @@ elif selecionado == "Relatórios":
             st.info("Nenhum componente cadastrado. Faça uma análise primeiro.")
 
 elif selecionado == "Logs":
-    st.markdown("<div style='font-size:32px; font-weight:700; margin-bottom:20px; color:var(--text-color);'>Logs de Auditoria</div>", unsafe_allow_html=True)
+    st.markdown("<div style='font-size:32px; font-weight:700; margin-bottom:20px; color:#fafafa;'>Logs de Auditoria</div>", unsafe_allow_html=True)
 
     logs = listar_logs(usuario_id, limite=100)
 
@@ -1255,7 +1255,7 @@ elif selecionado == "Chatbot":
     tela_chatbot(usuario_id)
     
 elif selecionado == "Painel Admin":
-    st.markdown("<div style='font-size:32px; font-weight:700; margin-bottom:20px; color:var(--text-color);'>Painel Administrativo</div>", unsafe_allow_html=True)
+    st.markdown("<div style='font-size:32px; font-weight:700; margin-bottom:20px; color:#fafafa;'>Painel Administrativo</div>", unsafe_allow_html=True)
 
     aba_usuarios, aba_logs_admin, aba_ativos_admin = st.tabs(
         ["👥 Usuários", "📜 Logs (Todos)", "📂 Ativos (Todos)"]
@@ -1392,7 +1392,7 @@ elif selecionado == "Painel Admin":
                 """, unsafe_allow_html=True)
 
 elif selecionado == "Configurações":
-    st.markdown("<div style='font-size:32px; font-weight:700; margin-bottom:20px; color:var(--text-color);'>Configurações</div>", unsafe_allow_html=True)
+    st.markdown("<div style='font-size:32px; font-weight:700; margin-bottom:20px; color:#fafafa;'>Configurações</div>", unsafe_allow_html=True)
   
 
     st.markdown("### 🔄 Re-scan Manual")
