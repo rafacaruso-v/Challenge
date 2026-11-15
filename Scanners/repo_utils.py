@@ -54,7 +54,7 @@ def preparar_repositorio(url: str):
 
     try:
         clone = subprocess.run(
-            ["git", "clone", "--depth=1", caminho_local],
+            ["git", "clone", "--depth=1", url, caminho_local],
             capture_output=True,
             text=True,
             timeout=60
