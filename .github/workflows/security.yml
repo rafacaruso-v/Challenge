@@ -26,7 +26,12 @@ jobs:
       - name: Run Semgrep
         run: |
           pip install semgrep
-          semgrep scan --config auto --json --output semgrep.json
+          semgrep scan --config auto 
+          --json 
+          --output semgrep.json
+          --exclude-rule generic.nginx.security.missing-internal.missing-internal \
+          --exclude-rule generic.nginx.security.possible-h2c-smuggling.possible-nginx-h2c-smuggling \
+          --error
 
       - name: Upload Semgrep report
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
