@@ -187,7 +187,7 @@ A plataforma roda inteiramente via Docker Compose, com 5 serviços:
 | `ngrok` | Túnel com domínio fixo, expõe o webhook para o GitHub Actions conseguir alcançá-lo |
 | `nginx` | Proxy reverso, único ponto de entrada externo da interface |
 
-O Streamlit **nunca é exposto diretamente** — sua porta (`8501`) só existe
+O Streamlit **nunca é exposto diretamente** — sua porta só existe
 dentro da rede Docker interna (`aspm-network`); todo acesso externo passa
 obrigatoriamente pelo Nginx.
 
@@ -219,7 +219,7 @@ segurança em si mesmo:
 - **Mascaramento obrigatório** de qualquer credencial ou dado sensível
   encontrado (Secrets, DLP) antes de aparecer em qualquer relatório, log
   ou prompt enviado à IA.
-- **Checksum SHA256** na instalação de binários externos (Gitleaks) tanto
+- **Checksum SHA256** na instalação de binários externos tanto
   localmente quanto nos workflows de CI/CD, evitando instalação via
   `curl | sh` sem verificação.
 
@@ -263,15 +263,6 @@ Challenge/
 ### `.github/`
 Pipeline de integração contínua e o fluxo de CI/CD do produto.
 
-- **`scripts/aspm_pr_scan.py`** — roda a cada Pull Request: Semgrep, Trivy,
-  Checkov, resumo via Gemini e comentário no PR. Falha o job (exit code 1)
-  se houver achado Crítico/Alto, funcionando como gate de merge.
-- **`scripts/aspm_ps_scan.py`** — roda ao mergear na main: reaproveita as
-  funções de scan acima, adiciona Gitleaks e DLP próprios (self-contidos,
-  sem acesso aos pacotes internos da plataforma), e envia tudo para o
-  webhook.
-- **`workflows/aspm_pr_scan.yaml`** / **`workflows/aspm_ps_scan.yml`** —
-  definições do GitHub Actions para os dois scripts acima.
 - **`workflows/security.yml`** — pipeline de segurança do próprio
   repositório: SAST, Secrets Scan, análise de segurança do próprio
   pipeline (Zizmor), SCA com gate HIGH/CRITICAL, SBOM, scan de imagem
@@ -290,8 +281,8 @@ Pipeline de integração contínua e o fluxo de CI/CD do produto.
 
 ### `API/`
 - **`webhook.py`** — servidor FastAPI (`/webhook/pr-scan`, `/health`).
-  Autentica por API Key, bucketiza achados por criticidade, calcula score e
-  atualiza o componente — fluxo determinístico, sem IA.
+  Pega o resultado do pipeline, bucketiza achados por criticidade, calcula score,
+  atualiza o componente e manda para a plataforma— fluxo determinístico, sem IA.
 
 ### `Auth/`
 - **`auth.py`** — cadastro, login em duas etapas (senha + MFA por e-mail),

@@ -1,6 +1,7 @@
 # Guia de instalação — ASPM Platform
 
-> Atenção: o .env não acompanha junto ao repositório.
+> Atenção: o .env não acompanha junto ao repositório. 
+> Contatar o dono do repositório.
 
 ## Clonar o repositório
 
