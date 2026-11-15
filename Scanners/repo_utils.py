@@ -32,18 +32,6 @@ def _forcar_remocao(func, caminho, exc_info):
     func(caminho)
 
 
-def _injetar_token_github(url: str) -> str:
-    """
-    Injeta o GITHUB_TOKEN (se configurado) na URL de clone, permitindo
-    acesso a repositórios privados via HTTPS. Não faz nada se a URL já
-    tiver credencial embutida ou não for do github.com.
-    """
-    token = os.environ.get("GITHUB_TOKEN", "").strip()
-    if not token or "github.com" not in url or "@github.com" in url:
-        return url
-    return url.replace("https://github.com/", f"https://{token}@github.com/")
-
-
 def _extrair_para_pasta(caminho_zip: str, pasta_destino: str):
     """Extrai um .zip com proteção contra Zip Slip (caminhos que tentam
     escapar da pasta de destino via ../ ou caminho absoluto)."""
@@ -56,25 +44,17 @@ def _extrair_para_pasta(caminho_zip: str, pasta_destino: str):
 
 
 def preparar_repositorio(url: str):
-    """
-    Clona um repositório remoto (git) para uma pasta temporária. Único modo
-    suportado para o campo de URL — não aceita mais caminho local do host,
-    já que a plataforma roda em Docker e não tem acesso ao filesystem do
-    usuário.
-    """
     if not url.startswith("http"):
         raise RuntimeError(
             "Informe uma URL de repositório válida (iniciando com http:// ou https://), "
             "ou use a opção de upload de arquivo."
         )
 
-    url_autenticada = _injetar_token_github(url)
-
     caminho_local = tempfile.mkdtemp(prefix="aspm_scan_repo_")
 
     try:
         clone = subprocess.run(
-            ["git", "clone", "--depth=1", url_autenticada, caminho_local],
+            ["git", "clone", "--depth=1", caminho_local],
             capture_output=True,
             text=True,
             timeout=60
@@ -85,8 +65,7 @@ def preparar_repositorio(url: str):
 
     if clone.returncode != 0:
         limpar_repositorio(caminho_local)
-        # nunca expor o token nem no stderr repassado pro usuário
-        stderr_seguro = clone.stderr.replace(url_autenticada, url)
+        stderr_seguro = clone.stderr.replace(url)
         raise RuntimeError(f"Falha ao clonar repositório: {stderr_seguro}")
 
     return caminho_local, True

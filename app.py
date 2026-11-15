@@ -117,6 +117,23 @@ def _iniciar_webhook_background():
  
 _iniciar_webhook_background()
 
+@st.cache_resource
+def _iniciar_tunel_ngrok():
+    token = os.environ.get("NGROK_AUTHTOKEN", "").strip()
+    dominio = os.environ.get("NGROK_DOMAIN", "").strip()
+    if not token or not dominio:
+        return None
+    from pyngrok import ngrok, conf
+    conf.get_default().auth_token = token
+    try:
+        return ngrok.connect(8000, "http", domain=dominio)
+    except Exception as e:
+        print(f"Falha ao abrir túnel ngrok: {e}")
+        return None
+
+
+_iniciar_tunel_ngrok()
+
 _dominio_ngrok = os.environ.get("NGROK_DOMAIN", "").strip()
 if _dominio_ngrok:
     st.session_state["webhook_url_publica"] = (
