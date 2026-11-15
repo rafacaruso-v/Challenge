@@ -24,14 +24,7 @@ jobs:
           python-version: "3.13"
 
       - name: Run Semgrep
-        run: |
-          pip install semgrep
-          semgrep scan --config auto 
-          --json 
-          --output semgrep.json
-          --exclude-rule generic.nginx.security.missing-internal.missing-internal \
-          --exclude-rule generic.nginx.security.possible-h2c-smuggling.possible-nginx-h2c-smuggling \
-          --error
+        run: pip install semgrep && semgrep scan --config auto --json --output semgrep.json --exclude-rule generic.nginx.security.missing-internal.missing-internal --exclude-rule generic.nginx.security.possible-h2c-smuggling.possible-nginx-h2c-smuggling --error
 
       - name: Upload Semgrep report
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
@@ -330,7 +323,7 @@ jobs:
           RESULT_SEMGREP: ${{ needs.semgrep.result }}
           RESULT_GITLEAKS: ${{ needs.secrets-scan.result }}
           RESULT_TRIVY: ${{ needs.dependency-scan.result }}
-        run: python .github/scripts/aspm_security_report.py
+        run: python .github/scripts/aspm_scan.py
 
   security-summary:
     name: Security Summary
@@ -351,13 +344,13 @@ jobs:
         with:
           script: |
             const jobs = {
-              'SAST (Semgrep)':           process.env.RESULT_SEMGREP,
-              'Secrets (Gitleaks)':       process.env.RESULT_SECRETS,
-              'Pipeline (Zizmor)':        process.env.RESULT_ZIZMOR,
+              'SAST (Semgrep)':         process.env.RESULT_SEMGREP,
+              'Secrets (Gitleaks)':     process.env.RESULT_SECRETS,
+              'Pipeline (Zizmor)':      process.env.RESULT_ZIZMOR,
               'Dependencies (Trivy SCA)': process.env.RESULT_SCA,
-              'SBOM':                     process.env.RESULT_SBOM,
+              'SBOM':                   process.env.RESULT_SBOM,
               'Container (Trivy Image)':  process.env.RESULT_CONTAINER,
-              'DAST (OWASP ZAP)':         process.env.RESULT_ZAP,
+              'DAST (OWASP ZAP)':       process.env.RESULT_ZAP,
             };
 
             const emoji = (r) => r === 'success' ? '✅' : r === 'skipped' ? '⏭️' : '❌';
