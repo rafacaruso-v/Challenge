@@ -19,14 +19,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
         with:
           python-version: "3.13"
 
       - name: Run Semgrep
         run: pip install semgrep && semgrep scan --config auto --json --output semgrep.json --exclude-rule generic.nginx.security.missing-internal.missing-internal --exclude-rule generic.nginx.security.possible-h2c-smuggling.possible-nginx-h2c-smuggling --exclude-rule python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected --error
       - name: Upload Semgrep report
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
           name: aspm-semgrep
@@ -78,7 +78,7 @@ jobs:
           gitleaks git --no-banner --redact --report-format json --report-path gitleaks.json --exit-code 0 .
 
       - name: Upload Gitleaks report
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
           name: aspm-gitleaks
@@ -120,7 +120,7 @@ jobs:
           zizmor --format sarif .github/workflows/security.yml > zizmor-results.sarif || true
 
       - name: Upload Zizmor Report
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
           name: zizmor-report
@@ -144,7 +144,7 @@ jobs:
           exit-code: '0'
 
       - name: Upload Trivy report
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
           name: aspm-trivy
@@ -188,7 +188,7 @@ jobs:
           output: 'sbom.json'
 
       - name: Upload SBOM
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
           name: sbom-cyclonedx
@@ -216,7 +216,7 @@ jobs:
           exit-code: '0'
 
       - name: Upload image scan report
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: trivy-image-results
           path: trivy-image.sarif
@@ -249,7 +249,7 @@ jobs:
     needs: [semgrep, secrets-scan, pipeline-scan, dependency-scan, sbom]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
         with:
           python-version: "3.13"
 
@@ -304,12 +304,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
         with:
           python-version: "3.13"
 
       - name: Download scanner reports
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333
         with:
           pattern: aspm-*
           merge-multiple: true
